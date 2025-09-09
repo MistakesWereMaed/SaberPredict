@@ -1,29 +1,95 @@
 # Automated Refereeing for Olympic Saber
 
----
-
 ## Project Overview
 
-This project aims to develop a computer vision system capable of **analyzing Olympic-style saber fencing bouts** and assisting referees in determining **right-of-way** and point assignment. The system is structured into three phases:
+Modern Olympic saber fencing requires referees to make **split-second decisions** about which fencer has right-of-way when simultaneous touches occur. While electronic scoring systems reliably detect valid touches, they do **not capture the sequence of actions** (attack, parry, riposte, counter-attack) that determine priority. This project aims to explore whether a **computer vision system** can reliably detect fencer movements, classify actions, and assist referees in making right-of-way decisions.
+
+### Goals
+
+* Detect fencer movements and blade trajectories.
+* Recognize offensive and defensive fencing actions.
+* Apply saber priority rules to produce preliminary point calls.
+
+---
+
+## Background
+
+Existing sports analytics technologies demonstrate the feasibility of automated decision support:
+
+* **Hawk-Eye** in tennis and soccer uses multi-camera setups for accurate event detection.
+* **Pose estimation** (OpenPose, MediaPipe) has been applied to track body movements in combat sports.
+* **Temporal models** (CNNs, Transformers) have been used for action recognition in datasets like Kinetics-400.
+* **Blade tracking** parallels object tracking in fast-moving sports equipment (e.g., baseball, cricket).
+
+Although no prior work has directly applied these techniques to fencing, combining pose estimation, object tracking, and temporal action classification forms a strong foundation for this project.
+
+---
+
+## Hypothesis & Expected Outcome
+
+Fencing exchanges can be **decomposed into structured temporal sequences** of atomic actions using pose and blade trajectory features. Modeling these sequences should allow automation of right-of-way reasoning to a degree comparable to human referees.
+
+**Expected Outcome:**
+A pipeline that takes match footage as input and outputs:
+
+1. Structured action sequences.
+2. Preliminary right-of-way decisions (point assignment).
+
+---
+
+## Project Approach
+
+The project follows a **three-phase pipeline**:
 
 1. **Detection & Tracking**
 
-   * Detect fencer poses (skeleton joints) and blade positions using MediaPipe/OpenPose and YOLOv8.
-   * Extract structured features such as joint coordinates, blade tip positions, and derived metrics like velocities.
+   * Pose estimation (MediaPipe/OpenPose) for skeleton joints.
+   * YOLO-based detection for blade tips and guards.
 
 2. **Action Recognition**
 
-   * Classify fencing actions (attack, parry, riposte, etc.) using temporal models like 1D CNNs, Transformers, or Graph Neural Networks on skeleton data.
-   * Each action may be annotated with a **success flag** indicating whether it landed.
+   * Temporal classifiers (1D CNNs, Transformers, or GNNs on skeletons) to identify actions such as attack, parry, riposte, etc.
+   * Each action is annotated with a **success flag** indicating whether it landed.
 
 3. **Right-of-Way Reasoning**
 
-   * Apply FIE priority rules to sequences of recognized actions to determine points awarded.
-   * Initially rule-based, with the option to train a learnable sequence model for automatic decision-making.
+   * Rule-based engine implementing FIE priority rules on recognized action sequences.
+   * Future extension: Learnable sequence model for automated point calls.
 
 ---
 
-## Quick Start – Prepare Dataset
+## Label Set
+
+### Offensive Actions
+
+* Preparation
+* Attack (Simple)
+* Attack (Compound)
+* Beat Attack
+* Remise
+
+### Defensive Actions
+
+* Parry
+* Riposte
+* Counter-riposte
+* Counter-attack
+* Stop-cut
+* Void (distance pull, duck, lean, etc.)
+
+### Special
+
+* Point in Line
+* Simultaneous Attack
+* No Action / Reset
+
+**Attribute:** `success = true/false` indicates whether the action landed.
+
+---
+
+## Dataset Setup
+
+### Quick Start
 
 1. **Install dependencies**
 
@@ -47,8 +113,9 @@ python downloader.py
 
 * Open each raw bout video in LosslessCut.
 * Split into segments:
+
   * Start 1 frame before fencers move.
-  * End 1 frame after scorebox lights up (wait for 2nd light if needed).
+  * End 1 frame after scorebox lights up (wait for second light if needed).
 * Label segments as `Exchange_Fencer` (e.g., `1_Left`, `2_Right`).
 * Export timestamps (CSV) to the `timestamps/` folder.
 
@@ -58,101 +125,35 @@ python downloader.py
 python splitter.py
 ```
 
-* Clips are saved in `clips/` folder, ready for annotation and processing.
-
----
-
-## Label Set
-
-### Offensive Actions
-
-* Preparation
-* Attack (Simple)
-* Attack (Compound)
-* Beat Attack
-* Remise
-* Counter-attack
-* Stop-cut
-
-### Defensive Actions
-
-* Parry
-* Riposte
-* Counter-riposte
-* Void (distance pull, duck, lean, etc.)
-
-### Special Actions
-
-* Point in Line
-* Simultaneous Attack
-* No Action / Reset
-
-**Notes:**
-
-* Each action can be annotated with a `success` attribute (`true`/`false`) to indicate whether the action landed successfully.
-* Labels are actor-specific (Left / Right fencer).
-
----
-
-## Dataset Setup
-
-### **1. Environment Setup**
-
-```bash
-# Install ffmpeg
-sudo apt-get update
-sudo apt-get install ffmpeg
-
-# Install Python dependencies
-pip install -r requirements.txt
-```
-
-### **2. Download Raw Videos**
-
-```bash
-python downloader.py
-```
-
-*(This script will download all raw bout videos to the `raw/` folder.)*
-
-### **3. Download & Install LosslessCut**
-
-* Visit [LosslessCut](https://losslesscut.en.softonic.com)
-* Extract and install to a local directory. This tool will be used for trimming and labeling video segments.
-
----
-
-## Trimming and Splitting Videos
-
-1. Open a raw bout video in LosslessCut.
-2. Split the video into segments by **exchange**:
-
-   * Start the segment **1 frame before both fencers move**.
-   * End the segment **1 frame after the scorebox lights up** (if both lights go off, wait for the second light).
-3. Label each segment with the exchange number and point winner, e.g., `1_Left`, `2_Right`, etc.
-4. After labeling all segments in a bout:
-
-   * Go to `File -> Export Project -> Timestamps (CSV)`.
-   * Rename the file to the bout ID (e.g., `BOUT12.csv`) and save it to the `timestamps/` folder.
-5. After labeling all bouts, split the raw videos into individual clips:
-
-```bash
-python splitter.py
-```
-
-*(This will generate per-exchange clip files in the `clips/` folder.)*
-
 ---
 
 ## Project Workflow
 
-1. **Video → Frames**: Extract frames from clips.
-2. **Pose & Blade Detection**: Run MediaPipe/OpenPose + YOLOv8 to extract skeletons and blade tips.
-3. **Annotation**: Correct detections and label actions, actor, and success attributes.
-4. **Action Recognition**: Train temporal models on annotated sequences.
-5. **Right-of-Way Reasoning**: Apply rule-based or learned sequence logic to produce referee decisions.
-6. **Evaluation**:
+1. Extract frames from video clips.
+2. Run **pose and blade detection** → structured trajectory data.
+3. Annotate/correct actions and success flags in CVAT.
+4. Train models: detection → action recognition → right-of-way reasoning.
+5. Evaluate using ground-truth referee calls.
 
-   * **Tracking:** PCK metric, blade tip pixel error.
-   * **Action Recognition:** Precision, Recall, F1.
-   * **Right-of-Way Decisions:** Agreement with referee ground truth.
+---
+
+## Experimental Setup
+
+* **Datasets:** Practice or competition footage, annotated with actions and outcomes.
+* **Evaluation Metrics:**
+
+  * **Tracking Accuracy:** PCK metric, pixel error for blade tip.
+  * **Action Recognition:** Precision, Recall, F1-score per action.
+  * **Right-of-Way Decisions:** Agreement % with referee ground truth.
+
+---
+
+## Implementation Plan
+
+1. Gather fencing footage and research vision models.
+2. Process footage through models to extract skeletons and blade tips.
+3. Manually adjust annotations in CVAT and label fencing actions + outcomes.
+4. Build data pipeline and train action recognition models.
+5. Implement FIE ruleset for point assignment and integrate into evaluation pipeline.
+
+---
