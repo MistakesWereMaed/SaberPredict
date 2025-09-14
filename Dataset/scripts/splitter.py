@@ -34,7 +34,7 @@ def split_video(bout_id, video_path, timestamp_file):
                 "-c:v", "libx264",
                 "-crf", "23",           # quality/size tradeoff
                 "-preset", "veryfast",  # encoding speed
-                "-g", "30",             # keyframe interval (~2s at 30fps)
+                "-g", "30",             # keyframe interval (~1s at 30fps)
                 "-an",                  # remove audio
                 "-y",                   # overwrite if exists
                 clip_path,

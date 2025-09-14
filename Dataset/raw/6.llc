@@ -1,0 +1,126 @@
+{
+  version: 1,
+  mediaFileName: '6.mp4',
+  cutSegments: [
+    {
+      start: 112.96,
+      end: 115.12,
+      name: '1_Right',
+    },
+    {
+      start: 142.12,
+      end: 145.12,
+      name: '2_Right',
+    },
+    {
+      start: 179.72,
+      end: 181.2,
+      name: '3_Right',
+    },
+    {
+      start: 191.52,
+      end: 192.56,
+      name: '4_Left',
+    },
+    {
+      start: 204.52,
+      end: 206.64,
+      name: '5_Left',
+    },
+    {
+      start: 219.56,
+      end: 221,
+      name: '6_Right',
+    },
+    {
+      start: 232.72,
+      end: 235.32,
+      name: '7_Right',
+    },
+    {
+      start: 245.48,
+      end: 250.56,
+      name: '8_Right',
+    },
+    {
+      start: 288.36,
+      end: 290.4,
+      name: '9_Left',
+    },
+    {
+      start: 300.56,
+      end: 301.68,
+      name: '10_Left',
+    },
+    {
+      start: 338.88,
+      end: 341.52,
+      name: '11_Left',
+    },
+    {
+      start: 354.36,
+      end: 355.88,
+      name: '12_Right',
+    },
+    {
+      start: 445,
+      end: 445.92,
+      name: '13_Left',
+    },
+    {
+      start: 469.6,
+      end: 471.52,
+      name: '14_Left',
+    },
+    {
+      start: 482.52,
+      end: 486.68,
+      name: '15_Right',
+    },
+    {
+      start: 498.12,
+      end: 500.52,
+      name: '16_Right',
+    },
+    {
+      start: 513.32,
+      end: 514.64,
+      name: '17_Right',
+    },
+    {
+      start: 526.12,
+      end: 527.76,
+      name: '18_Left',
+    },
+    {
+      start: 539.4,
+      end: 540.6,
+      name: '19_Left',
+    },
+    {
+      start: 607.96,
+      end: 609.36,
+      name: '20_Left',
+    },
+    {
+      start: 625.44,
+      end: 630,
+      name: '21_Right',
+    },
+    {
+      start: 641.68,
+      end: 643,
+      name: '22_Right',
+    },
+    {
+      start: 654.96,
+      end: 656.36,
+      name: '23_Right',
+    },
+    {
+      start: 669.84,
+      end: 671.44,
+      name: '24_Right',
+    },
+  ],
+}
