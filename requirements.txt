@@ -1,3 +1,4 @@
 pandas
 yt-dlp
 ffmpeg-python
+opencv-python
