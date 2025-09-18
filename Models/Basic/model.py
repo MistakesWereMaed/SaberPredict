@@ -9,7 +9,7 @@ from torchmetrics.classification import Accuracy
 # Model definition
 # ---------------------------
 class FencerScorer(pl.LightningModule):
-    def __init__(self, lr=1e-4, num_classes=2):
+    def __init__(self, lr, num_classes=2):
         super().__init__()
         # 3D ResNet18 backbone
         self.model = models.r3d_18(pretrained=True)

@@ -2,3 +2,10 @@ pandas
 yt-dlp
 ffmpeg-python
 opencv-python
+torch
+torchvision
+torchcodec
+av
+pytorch-lightning
+torchmetrics
+wandb
