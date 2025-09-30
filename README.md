@@ -78,7 +78,7 @@ The project follows a **three-phase pipeline**:
 
 ### Other
 
-* Recovery
+* None - used to markspaces between actions (such as recovery after an attack)
 
 **Attribute:** `success = true/false` indicates whether offensive actions landed or defensive actions were successful at avoiding the hit.
 
@@ -154,5 +154,6 @@ python splitter.py
 5. Implement FIE ruleset for point assignment and integrate into evaluation pipeline.
 
 ---
+
 
 
