@@ -66,24 +66,20 @@ The project follows a **three-phase pipeline**:
 * Attack (Simple)
 * Attack (Compound)
 * Beat Attack
-* Remise
 
 ### Defensive Actions
 
 * Parry
 * Riposte
-* Counter-riposte
-* Counter-attack
 * Stop-cut
-* Void (distance pull, duck, lean, etc.)
-
-### Special
-
+* Distance Pull
 * Point in Line
-* Simultaneous Attack
-* No Action / Reset
 
-**Attribute:** `success = true/false` indicates whether the action landed.
+### Other
+
+* Recovery
+
+**Attribute:** `success = true/false` indicates whether offensive actions landed or defensive actions were successful at avoiding the hit.
 
 ---
 
@@ -157,3 +153,4 @@ python splitter.py
 5. Implement FIE ruleset for point assignment and integrate into evaluation pipeline.
 
 ---
+
