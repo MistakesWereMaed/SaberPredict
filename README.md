@@ -66,6 +66,7 @@ The project follows a **three-phase pipeline**:
 * Attack (Simple)
 * Attack (Compound)
 * Beat Attack
+* Remise
 
 ### Defensive Actions
 
@@ -153,4 +154,5 @@ python splitter.py
 5. Implement FIE ruleset for point assignment and integrate into evaluation pipeline.
 
 ---
+
 
