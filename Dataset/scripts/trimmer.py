@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 
 CLIPS_DIR = "../clips"
-OUTPUT_DIR = "../clips_last30"
-TARGET_FRAMES = 30
+OUTPUT_DIR = "../clips_trimmed"
+TARGET_FRAMES = 60
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
