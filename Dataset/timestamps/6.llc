@@ -1,0 +1,131 @@
+{
+  version: 1,
+  mediaFileName: 'ssvid.net---Men-s-Final-Sébastien-Patrice-vs-Sangwon-Park-2425_v720P.mp4',
+  cutSegments: [
+    {
+      start: 226.36,
+      end: 227.64,
+      name: '1_Left',
+    },
+    {
+      start: 237.04,
+      end: 241.6,
+      name: '2_Left',
+    },
+    {
+      start: 253.92,
+      end: 258.96,
+      name: '3_Left',
+    },
+    {
+      start: 274.12,
+      end: 275.2,
+      name: '4_Right',
+    },
+    {
+      start: 286.84,
+      end: 288.88,
+      name: '5_Left',
+    },
+    {
+      start: 302.6,
+      end: 304.4,
+      name: '6_Right',
+    },
+    {
+      start: 403.92,
+      end: 409.16,
+      name: '7_Left',
+    },
+    {
+      start: 424.88,
+      end: 425.92,
+      name: '8_Right',
+    },
+    {
+      start: 437.76,
+      end: 439.56,
+      name: '9_Left',
+    },
+    {
+      start: 452.96,
+      end: 460.32,
+      name: '10_Right',
+    },
+    {
+      start: 482.28,
+      end: 483.6,
+      name: '11_Left',
+    },
+    {
+      start: 493.92,
+      end: 495.64,
+      name: '12_Right',
+    },
+    {
+      start: 509.36,
+      end: 514.16,
+      name: '13_Right',
+    },
+    {
+      start: 612.72,
+      end: 614.4,
+      name: '14_Right',
+    },
+    {
+      start: 626.12,
+      end: 628.04,
+      name: '15_Right',
+    },
+    {
+      start: 639.68,
+      end: 640.88,
+      name: '16_Left',
+    },
+    {
+      start: 654.12,
+      end: 655.12,
+      name: '17_Left',
+    },
+    {
+      start: 669.08,
+      end: 670.68,
+      name: '18_Right',
+    },
+    {
+      start: 708.48,
+      end: 709.76,
+      name: '19_Left',
+    },
+    {
+      start: 724.16,
+      end: 731.04,
+      name: '20_Right',
+    },
+    {
+      start: 748.2,
+      end: 750.08,
+      name: '21_Right',
+    },
+    {
+      start: 762.84,
+      end: 763.84,
+      name: '22_Right',
+    },
+    {
+      start: 787.84,
+      end: 789,
+      name: '23_Left',
+    },
+    {
+      start: 824.12,
+      end: 825.56,
+      name: '24_Right',
+    },
+    {
+      start: 836.76,
+      end: 838.32,
+      name: '25_Right',
+    },
+  ],
+}

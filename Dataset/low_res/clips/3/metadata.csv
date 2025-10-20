@@ -1,4 +1,4 @@
-clip_filename,bout_id,start_time,end_time,label
+clip_filename,id,start_time,end_time,label
 1_Right.mp4,3,00:02:32.480,00:02:34.280,1_Right
 2_Right.mp4,3,00:02:45.360,00:02:56.280,2_Right
 3_Left.mp4,3,00:03:11.520,00:03:13.680,3_Left
