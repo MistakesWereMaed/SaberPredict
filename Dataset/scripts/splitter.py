@@ -52,7 +52,7 @@ def main():
             continue
 
         id = os.path.splitext(file)[0]  # e.g. "1"
-        if id in ["1", "2", "3", "4", "5", "6", "7", "10"]: continue
+        if id in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]: continue
         timestamp_file = os.path.join(TIMESTAMP_DIR, file)
         video_file = os.path.join(RAW_DIR, f"{id}.mp4")
 

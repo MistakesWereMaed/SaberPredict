@@ -9,3 +9,5 @@ av
 pytorch-lightning
 torchmetrics
 wandb
+tdqm
+roboflow
