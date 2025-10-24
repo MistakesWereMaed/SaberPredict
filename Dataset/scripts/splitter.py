@@ -1,28 +1,30 @@
 import os
 import csv
 import subprocess
+import re
 
 RAW_DIR = "../low_res/raw"
 TIMESTAMP_DIR = "../timestamps"
-CLIPS_DIR = "../clips"
+CLIPS_DIR = "../low_res/clips"
 
 os.makedirs(CLIPS_DIR, exist_ok=True)
+GLOBAL_METADATA_PATH = os.path.join(CLIPS_DIR, "metadata.csv")
 
-def split_video(id, video_path, timestamp_file):
-    bout_clip_dir = os.path.join(CLIPS_DIR, str(id))
+def split_video(source_id, video_path, timestamp_file, global_writer):
+    bout_clip_dir = os.path.join(CLIPS_DIR, str(source_id))
     os.makedirs(bout_clip_dir, exist_ok=True)
 
-    metadata_path = os.path.join(bout_clip_dir, "metadata.csv")
-    with open(timestamp_file, "r") as f_in, open(metadata_path, "w", newline="") as f_out:
+    with open(timestamp_file, "r") as f_in:
         reader = csv.reader(f_in)
-        writer = csv.writer(f_out)
-        writer.writerow(["clip_filename", "id", "start_time", "end_time", "label"])
 
         for row in reader:
             if len(row) < 3:
                 continue
-            start, end, label = row
-            clip_name = f"{label}.mp4"
+
+            start, end, raw_label = row
+            clip_id = raw_label
+            label = re.sub(r'\d+_', '', raw_label)
+            clip_name = f"{raw_label}.mp4"
             clip_path = os.path.join(bout_clip_dir, clip_name)
 
             # Re-encode the clip for frame-accurate trimming and smaller size
@@ -41,27 +43,35 @@ def split_video(id, video_path, timestamp_file):
             ]
 
             subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            print(f"Saved: {clip_path}")
-
-            # record metadata
-            writer.writerow([clip_name, id, start, end, label])
+            # Record global metadata
+            global_writer.writerow([source_id, clip_id, label])
+    print(f"Bout {source_id} complete")
 
 def main():
-    for file in os.listdir(TIMESTAMP_DIR):
-        if not file.endswith(".csv"):
-            continue
+    # Create (or overwrite) the global metadata file
+    with open(GLOBAL_METADATA_PATH, "w", newline="") as global_file:
+        writer = csv.writer(global_file)
+        writer.writerow(["source_id", "clip_id", "label"])
 
-        id = os.path.splitext(file)[0]  # e.g. "1"
-        if id in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]: continue
-        timestamp_file = os.path.join(TIMESTAMP_DIR, file)
-        video_file = os.path.join(RAW_DIR, f"{id}.mp4")
+        for file in os.listdir(TIMESTAMP_DIR):
+            if not file.endswith(".csv"):
+                continue
 
-        if not os.path.exists(video_file):
-            print(f"Missing video for bout {id}, skipping.")
-            continue
+            source_id = os.path.splitext(file)[0]
+            if source_id in ["1", "2", "3", "4", "5", "6", "7", "8", "9"]:
+                continue
 
-        print(f"Processing bout {id}...")
-        split_video(id, video_file, timestamp_file)
+            timestamp_file = os.path.join(TIMESTAMP_DIR, file)
+            video_file = os.path.join(RAW_DIR, f"{source_id}.mp4")
+
+            if not os.path.exists(video_file):
+                print(f"Missing video for bout {source_id}, skipping.")
+                continue
+
+            print(f"Processing bout {source_id}...")
+            split_video(source_id, video_file, timestamp_file, writer)
+
+    print(f"\nAll clips processed. Combined metadata saved to {GLOBAL_METADATA_PATH}")
 
 if __name__ == "__main__":
     main()
