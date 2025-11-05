@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from glob import glob
 from ultralytics import YOLO
-from optical_flow import create_optical_flow_output
+from Dataset.scripts.preprocessing.optical_flow import create_optical_flow_output
 
 def load_model(model_name = "yolo11s-seg.pt"):
     model = YOLO(model_name)
