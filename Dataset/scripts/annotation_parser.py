@@ -1,9 +1,8 @@
 import xml.etree.ElementTree as ET
 import pandas as pd
-import json
 
 PATH_ANNOTATIONS = "../annotations/actions.xml"
-PATH_ANNOTATIONS_PARSED = "../annotations/parsed_actions.json"
+PATH_ANNOTATIONS_PARSED = "../annotations/parsed_actions.csv"
 
 # TODO: Save action attributes too
 
@@ -103,29 +102,6 @@ def combine_frames(df):
     # Combine all groups
     return pd.concat(results, ignore_index=True)
 
-def save_json(df):
-    json_dict = {}
-
-    # Iterate over rows
-    for _, row in df.iterrows():
-        src = str(row["source_id"])
-        clip = row["clip_id"]
-        fencer = row["fencer"]
-        
-        json_dict.setdefault(src, {})
-        json_dict[src].setdefault(clip, {})
-        json_dict[src][clip].setdefault(fencer, [])
-        
-        json_dict[src][clip][fencer].append({
-            "action": row["action"],
-            "start_frame": int(row["start_frame"]),
-            "end_frame": int(row["end_frame"])
-        })
-
-    # Save to JSON
-    with open(PATH_ANNOTATIONS_PARSED, "w") as f:
-        json.dump(json_dict, f, indent=4)
-
 def main():
     df = parse_xml(PATH_ANNOTATIONS)
 
@@ -141,7 +117,7 @@ def main():
     df = df[cols]
 
     df = combine_frames(df)
-    save_json(df)
+    df.to_csv(PATH_ANNOTATIONS_PARSED, index=False)
 
 if __name__ == "__main__":
     main()
