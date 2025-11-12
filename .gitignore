@@ -1,6 +1,7 @@
 *.mp4
 *.pt
 *.jpg
-
+*.yaml
+*.csv
 __pycache__
 wandb

@@ -1,5 +1,9 @@
+import torch
+
 import yaml
+
 import numpy as np
+import pandas as pd
 
 from tqdm import tqdm
 
@@ -12,7 +16,12 @@ class sabre_dataset(Dataset):
 
         self.yaml_fl = yaml_fl
 
-        self.loaded_data = self._load_yaml(yaml_fl)
+        if ".yaml" in yaml_fl:
+
+            self.loaded_data = self._load_yaml(yaml_fl)
+
+        elif ".csv" in yaml_fl:
+            self.loaded_data = self._load_csv(yaml_fl)
 
         self.graph_obj_1 = [
                             (0, 1), (1, 3),
@@ -51,6 +60,33 @@ class sabre_dataset(Dataset):
             out = yaml.full_load(fl)
 
         return out
+
+    def _string_to_real_coords(self, txt_val):
+        kpts = txt_val.split(", ")
+        kp_1 = float(kpts[0][1:])
+        kp_2 = float(kpts[1][:-2])
+        
+        return (kp_1, kp_2)
+
+    def _load_csv(self, csv_fl: str):
+
+        out = pd.read_csv(csv_fl)
+
+        all_wanted_keys = ['kepoint_0', 'kepoint_1', 'kepoint_10', 'kepoint_11',
+            'kepoint_12', 'kepoint_13', 'kepoint_14', 'kepoint_15', 'kepoint_16',
+            'kepoint_2', 'kepoint_3', 'kepoint_4', 'kepoint_5', 'kepoint_6',
+            'kepoint_7', 'kepoint_8', 'kepoint_9']
+
+        wanted_dict = {}
+        for k in out.keys():
+            if k in all_wanted_keys:
+                wanted_values = out[k].apply(self._string_to_real_coords)
+                wanted_dict[k] = wanted_values.to_numpy().flatten()
+
+            else:
+                wanted_dict[k] = out[k].to_numpy().flatten()
+
+        return wanted_dict
 
     def _find_fl_frame_pairing(self, dictionary: dict):
         
@@ -173,7 +209,10 @@ class sabre_dataset(Dataset):
                 graph, feature_arr = self._format_to_data_obj(features_1, feature_2)
 
 
-            data_obj = Data(x=feature_arr, edge_index=graph, y = lb)
+            graph = torch.tensor(list(zip(*graph)), dtype=torch.long)
+            feature_tensor = torch.tensor(feature_arr)
+
+            data_obj = Data(x=feature_tensor, edge_index=graph, y = lb)
             lst_of_data_obj.append(data_obj)
 
             pbar.update(1)

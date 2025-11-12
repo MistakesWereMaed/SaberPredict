@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from glob import glob
 from ultralytics import YOLO
-from Dataset.scripts.preprocessing.optical_flow import create_optical_flow_output
+from optical_flow import create_optical_flow_output
 
 def load_model(model_name = "yolo11s-seg.pt"):
     model = YOLO(model_name)
@@ -61,6 +61,10 @@ def return_correct_segmentation_map(optical_map, segmentation_map):
             sum_val = np.mean(optical_map*seg_img)
 
             if sum_val > max_val[0]:
+                if max_val[0] != -1:
+                    ratio_from_max = np.sum(np.clip(segmentation_map[max_val[1]], 0, 1) - np.clip(seg_img, 0, 1))/np.sum(np.clip(segmentation_map[max_val[1]], 0, 1))
+                    if ratio_from_max >= 0.6:
+                        continue
 
                 second_max_val[0] = max_val[0]
                 second_max_val[1] = max_val[1]
@@ -69,6 +73,10 @@ def return_correct_segmentation_map(optical_map, segmentation_map):
                 max_val[1] = counter
 
             elif sum_val > second_max_val[0]:
+                ratio_from_max = np.sum(np.clip(segmentation_map[max_val[1]], 0, 1) - np.clip(seg_img, 0, 1))/np.sum(np.clip(segmentation_map[max_val[1]], 0, 1))
+                if ratio_from_max >= 0.6:
+                    continue
+
                 second_max_val[0] = sum_val
                 second_max_val[1] = counter
 
@@ -142,7 +150,16 @@ def save_pose_estimates(results_lst, dictionary, fl):
         for idx_spec, res in enumerate(result_tuple):
             
             keypoints = np.squeeze(res[0].keypoints.xy.numpy())
-            confidence = res[0].keypoints.conf.numpy().flatten()
+            confidence = res[0].keypoints.conf.numpy()
+
+            if (keypoints.shape[0] >= 2) and (len(keypoints.shape) == 3):
+                print(keypoints.shape)
+                print(confidence)
+                print(confidence.shape)
+                keypoints = keypoints[0]
+                confidence = confidence[0]
+
+            confidence = confidence.flatten()
 
             sved_fl = fl.split("clips")[-1]
 
@@ -157,16 +174,18 @@ def save_pose_estimates(results_lst, dictionary, fl):
 
             for final_idx, (k_pt, conf) in enumerate(zip(keypoints, confidence)):
 
-                
-
                 try:
                     k_pt = (float(k_pt[0]), float(k_pt[1]))
                     conf = float(conf)
 
                 except:
-                    res[0].show()
+                    res[0].save()
                     print(idx)
-                    assert 1 == 0
+                    print(k_pt)
+                    print(keypoints.shape)
+                    print(type(keypoints))
+                    k_pt = (float(k_pt[0]), float(k_pt[1]))
+                    conf = float(conf)
 
                 nm_of_conf = f"conf_{final_idx}"
                 nm_of_k_pt = f"kepoint_{final_idx}"
@@ -186,9 +205,8 @@ def save_pose_estimates(results_lst, dictionary, fl):
 
 def main_yolo_collection_method(mp4_file):
     
-    md_seg = load_model("yolo11s-seg.pt")
-    md_pose = load_model("yolo11n-pose.pt")
-
+    md_seg = load_model("yolo11l-seg.pt")
+    md_pose = load_model("yolo11l-pose.pt")
 
     out_optical = create_optical_flow_output(mp4_file)
 
@@ -225,7 +243,7 @@ def main_yolo_collection_method(mp4_file):
     return out_dict
 
 def main():
-    base_dir = "/Users/johannesbauer/Documents/Coding/SaberPredict/Dataset/clips/1/*"
+    base_dir = "/home/johannes/SaberPredict/clips/6/*"
 
     fls_to_analyze = glob(base_dir)
     fls_to_analyze = [fl for fl in fls_to_analyze if ".mp4" in fl]
@@ -261,7 +279,7 @@ def main():
 
     print("Yay - you got this far. Now, we are saving our results.")
     print()
-    sv_fl = "/Users/johannesbauer/Documents/Coding/SaberPredict/data/test_2.yaml"
+    sv_fl = "/home/johannes/SaberPredict/yaml_files/clip6.yaml"
 
     final_dict = {}
 
