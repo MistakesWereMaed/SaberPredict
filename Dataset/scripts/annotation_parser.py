@@ -1,8 +1,7 @@
-import xml.etree.ElementTree as ET
 import pandas as pd
+import xml.etree.ElementTree as ET
 
-PATH_ANNOTATIONS = "../annotations/actions.xml"
-PATH_ANNOTATIONS_PARSED = "../annotations/parsed_actions.csv"
+from IPython.display import display, HTML
 
 # TODO: Save action attributes too
 
@@ -102,8 +101,8 @@ def combine_frames(df):
     # Combine all groups
     return pd.concat(results, ignore_index=True)
 
-def main():
-    df = parse_xml(PATH_ANNOTATIONS)
+def parse_annotations(path_annotations):
+    df = parse_xml(path_annotations)
 
     df["task_name"] = df["task_name"].str.replace("Bout ", "", regex=False)
     df["task_name"] = df["task_name"].replace("Test Upload", "1")
@@ -116,8 +115,46 @@ def main():
     cols = ["source_id", "clip_id", "fencer", "action", "frame"]
     df = df[cols]
 
-    df = combine_frames(df)
-    df.to_csv(PATH_ANNOTATIONS_PARSED, index=False)
+    return combine_frames(df)
 
-if __name__ == "__main__":
-    main()
+def show_stats(df):
+    def display_side_by_side(dfs: list, titles: list = None):
+        html_str = ""
+        for i, df in enumerate(dfs):
+            title = f"<h4>{titles[i]}</h4>" if titles else ""
+            html_str += f"""
+            <div style="display: inline-block; vertical-align: top; margin-right: 30px;">
+                {title}
+                {df.to_html(index=False)}
+            </div>
+            """
+        display(HTML(html_str))
+
+    def get_stats(df):
+        stats = (
+            df.groupby("action")["duration"]
+            .agg(["min", "max", "mean", "std"])
+            .reset_index()
+            .sort_values(by="mean", ascending=False)
+        )
+
+        stats["count"] = df["action"].value_counts().reindex(stats["action"]).values
+        return stats
+
+    df_offense = df[df["action"].str.startswith("ATTACK", na=False)]
+    df_defense = df[df["action"].str.startswith("DEFENSE", na=False)]
+
+    stats_offense = get_stats(df_offense)
+    stats_defense = get_stats(df_defense)
+
+    total_offensive = len(df_offense)
+    total_defensive = len(df_defense)
+    total_actions = len(df)
+
+    display_side_by_side([stats_offense, stats_defense], titles=["Offensive Action Frame Durations", "Defensive Actions Frame Durations"])
+
+    print(f"Total Offensive Actions: {total_offensive}")
+    print(f"Total Defensive Actions: {total_defensive}")
+
+    print(f"\nTotal Actions: {total_actions}")
+    print("Total action classes: ", df["action"].nunique())
