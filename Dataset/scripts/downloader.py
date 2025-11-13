@@ -3,7 +3,7 @@ import csv
 import subprocess
 
 RAW_DIR = "../low_res/raw"
-BOUTS_FILE = "../manifest.csv"
+BOUTS_FILE = "../videos/manifest.csv"
 
 def download_and_process(id, url):
     # temp download path (yt-dlp will decide extension)

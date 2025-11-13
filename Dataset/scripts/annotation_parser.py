@@ -1,7 +1,6 @@
 import pandas as pd
+import numpy as np
 import xml.etree.ElementTree as ET
-
-from IPython.display import display, HTML
 
 # TODO: Save action attributes too
 
@@ -117,44 +116,29 @@ def parse_annotations(path_annotations):
 
     return combine_frames(df)
 
-def show_stats(df):
-    def display_side_by_side(dfs: list, titles: list = None):
-        html_str = ""
-        for i, df in enumerate(dfs):
-            title = f"<h4>{titles[i]}</h4>" if titles else ""
-            html_str += f"""
-            <div style="display: inline-block; vertical-align: top; margin-right: 30px;">
-                {title}
-                {df.to_html(index=False)}
-            </div>
-            """
-        display(HTML(html_str))
+def sample_action_snippets(df, snippet_len=4, n_samples=3, random_state=None):
+    np.random.seed(random_state)
+    snippets = []
 
-    def get_stats(df):
-        stats = (
-            df.groupby("action")["duration"]
-            .agg(["min", "max", "mean", "std"])
-            .reset_index()
-            .sort_values(by="mean", ascending=False)
-        )
+    for _, row in df.iterrows():
+        start, end = row["start_frame"], row["end_frame"]
 
-        stats["count"] = df["action"].value_counts().reindex(stats["action"]).values
-        return stats
+        # possible start indices for a 4-frame window
+        possible_starts = np.arange(start, end - snippet_len + 2)
+        if len(possible_starts) == 0:
+            continue
 
-    df_offense = df[df["action"].str.startswith("ATTACK", na=False)]
-    df_defense = df[df["action"].str.startswith("DEFENSE", na=False)]
+        # random sampling without replacement
+        n_to_sample = min(n_samples, len(possible_starts))
+        sampled_starts = np.random.choice(possible_starts, n_to_sample, replace=False)
 
-    stats_offense = get_stats(df_offense)
-    stats_defense = get_stats(df_defense)
+        for s in sampled_starts:
+            snippets.append({
+                "file": row["file"],
+                "fencer": row["fencer"],
+                "action": row["action"],
+                "start_frame": s,
+                "end_frame": s + snippet_len - 1,
+            })
 
-    total_offensive = len(df_offense)
-    total_defensive = len(df_defense)
-    total_actions = len(df)
-
-    display_side_by_side([stats_offense, stats_defense], titles=["Offensive Action Frame Durations", "Defensive Actions Frame Durations"])
-
-    print(f"Total Offensive Actions: {total_offensive}")
-    print(f"Total Defensive Actions: {total_defensive}")
-
-    print(f"\nTotal Actions: {total_actions}")
-    print("Total action classes: ", df["action"].nunique())
+    return pd.DataFrame(snippets)

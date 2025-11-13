@@ -5,3 +5,7 @@
 *.csv
 __pycache__
 wandb
+
+keypoints.csv
+filtered_actions.csv
+filtered_actions_windowed.csv
