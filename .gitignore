@@ -1,11 +1,9 @@
 *.mp4
+*.llc
 *.pt
 *.jpg
 *.yaml
-*.csv
 __pycache__
 wandb
 
-keypoints.csv
-filtered_actions.csv
-filtered_actions_windowed.csv
+Dataset/Data/*
