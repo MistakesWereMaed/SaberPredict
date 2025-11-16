@@ -155,3 +155,16 @@ def split_data(df, id_column="window_id", train_frac=0.8, val_frac=0.1, test_fra
     print(f"Val: {len(val_df)} rows, {len(val_ids)} actions")
 
     return train_df, val_df, test_df
+
+def explode_keypoints(df):
+    # Expand each tuple into separate x,y columns
+    exploded = df["keypoints"].apply(
+        lambda kp: [coord for point in kp for coord in point]
+    )
+
+    # Create column names: x0, y0, x1, y1, ...
+    num_points = len(df.iloc[0]["keypoints"])
+    cols = [f"x{i}" for i in range(num_points)] + [f"y{i}" for i in range(num_points)]
+    
+    new_df = pd.DataFrame(exploded.tolist(), columns=cols)
+    return pd.concat([df.drop(columns=["keypoints"]), new_df], axis=1)
