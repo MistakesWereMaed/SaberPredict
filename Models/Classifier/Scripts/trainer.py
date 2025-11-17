@@ -34,12 +34,13 @@ def main():
 
     model = GNN(
         num_classes=data.num_classes,
+        label_dict=data.label_dict,
         lr=1e-3
     )
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=PATH_CHECKPOINTS,
-        filename="gnn-{epoch:02d}-{val_loss:.4f}",
+        filename="{MODEL_NAME}-{epoch:02d}-{val_loss:.4f}",
         monitor="val_loss",
         mode="min"
     )

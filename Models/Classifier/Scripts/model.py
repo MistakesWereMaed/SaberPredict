@@ -1,9 +1,11 @@
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
+import wandb
 
-from torchmetrics import Accuracy
+from torchmetrics import Accuracy, ConfusionMatrix
 from torch_geometric.nn import GCNConv
 
 skeleton = [
@@ -21,7 +23,7 @@ skeleton = [
 ]
 
 class GNN(pl.LightningModule):
-    def __init__(self, num_classes: int, lr: float = 1e-3):
+    def __init__(self, num_classes, label_dict, lr):
         super().__init__()
         self.save_hyperparameters()
 
@@ -57,7 +59,9 @@ class GNN(pl.LightningModule):
         self.val_acc = Accuracy(task="multiclass", num_classes=num_classes)
         self.test_acc = Accuracy(task="multiclass", num_classes=num_classes)
 
-    def _run_model(self, x):
+        self.confmat = ConfusionMatrix(task="multiclass", num_classes=num_classes)
+
+    def forward(self, x):
         B, T, V, C = x.shape
         x = x.reshape(B*T, V, C)
         x = x.reshape(B*T*V, C)   # flatten all nodes
@@ -83,14 +87,13 @@ class GNN(pl.LightningModule):
 
         return self.fc(x)
 
-    def forward(self, x):
-        return self._run_model(x)
-
     def training_step(self, batch, batch_idx):
         x, y = batch
         preds = self(x)
         loss = F.cross_entropy(preds, y)
         acc = self.train_acc(preds, y)
+
+        self.confmat.update(preds, y)
 
         self.log("train_loss", loss, prog_bar=True)
         self.log("train_acc", acc, prog_bar=True)
@@ -108,8 +111,49 @@ class GNN(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         x, y = batch
         preds = self(x)
-        acc = self.test_acc(preds, y)
-        self.log("test_acc", acc)
+        loss = F.cross_entropy(preds, y)
+        acc = self.val_acc(preds, y)
+
+        self.log("test_loss", loss, prog_bar=True)
+        self.log("test_acc", acc, prog_bar=True)
+    
+    def on_fit_end(self):
+        # Compute confusion matrix and add per-class accuracies
+        confmat = self.confmat.compute().detach().cpu()
+        per_class_acc = confmat.diag() / confmat.sum(dim=1).clamp(min=1)
+
+        num_classes = confmat.shape[0]
+        class_names = [self.hparams.label_dict[i] for i in range(num_classes)]
+
+        fig, ax = plt.subplots(figsize=(12, 8))
+        bars = ax.bar(range(num_classes), per_class_acc, align="center")
+
+        ax.set_xticks(range(num_classes))
+        ax.set_xticklabels(class_names, rotation=45, ha="right", fontsize=9)
+        ax.set_ylim(0.0, 1.0)
+        
+        ax.set_ylabel("Accuracy")
+        ax.set_xlabel("Classes")
+
+        ax.grid(axis="y", linestyle="--", alpha=0.4)
+
+        plt.tight_layout()
+
+        # annotate bar values
+        for bar, acc in zip(bars, per_class_acc):
+            h = bar.get_height()
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                h + 0.02,
+                f"{acc:.2f}",
+                ha="center",
+                va="bottom",
+                fontsize=8
+            )
+
+        # Log to wandb
+        self.logger.experiment.log({"per_class_accuracy_plot": wandb.Image(fig)})
+        plt.close(fig)
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)

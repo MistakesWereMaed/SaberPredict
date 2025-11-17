@@ -23,10 +23,6 @@ class SkeletonDataset(Dataset):
         for wid, group in df.groupby("window_id"):
             group = group.sort_values("frame")
 
-            # Skip bad samples
-            if len(group) != 4:
-                continue
-
             # Convert keypoints to (4,17,2)
             kpts = group[kpt_cols].values      # (4,34)
             kpts = kpts.reshape(4, 17, 2)
@@ -58,6 +54,7 @@ class SkeletonDataModule(pl.LightningDataModule):
     def setup(self, stage=None):
         dataset = SkeletonDataset(self.csv_path)
         self.num_classes = len(dataset.unique_labels)
+        self.label_dict = dataset.id_to_label
 
         N = len(dataset)
         val_size = int(0.1 * N)

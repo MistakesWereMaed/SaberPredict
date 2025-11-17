@@ -132,30 +132,6 @@ def create_action_windows(
 
     return pd.concat(window_rows, ignore_index=True)
 
-def split_data(df, id_column="window_id", train_frac=0.8, val_frac=0.1, test_frac=0.1, random_state=42):
-    assert abs(train_frac + val_frac + test_frac - 1.0) < 1e-6, "Fractions must sum to 1"
-
-    # Get unique IDs
-    unique_ids = df[id_column].unique()
-
-    # Split train vs remaining
-    train_ids, temp_ids = train_test_split(unique_ids, train_size=train_frac, random_state=random_state)
-
-    # Compute relative fraction for val/test split
-    val_relative = val_frac / (val_frac + test_frac)
-    val_ids, test_ids = train_test_split(temp_ids, train_size=val_relative, random_state=random_state)
-
-    # Filter dataframes
-    train_df = df[df[id_column].isin(train_ids)].reset_index(drop=True)
-    val_df = df[df[id_column].isin(val_ids)].reset_index(drop=True)
-    test_df = df[df[id_column].isin(test_ids)].reset_index(drop=True)
-
-    print(f"Train: {len(train_df)} rows, {len(train_ids)} actions")
-    print(f"Test: {len(test_df)} rows, {len(test_ids)} actions")
-    print(f"Val: {len(val_df)} rows, {len(val_ids)} actions")
-
-    return train_df, val_df, test_df
-
 def explode_keypoints(df):
     # Expand each tuple into separate x,y columns
     exploded = df["keypoints"].apply(
