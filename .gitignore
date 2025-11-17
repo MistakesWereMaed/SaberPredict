@@ -2,7 +2,7 @@
 *.llc
 *.pt
 *.jpg
-*.yaml
+*.ckpt
 __pycache__
 wandb
 
