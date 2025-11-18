@@ -3,10 +3,9 @@ import os
 import numpy as np
 import pandas as pd
 
-from collections import defaultdict
 from ultralytics import YOLO
 
-PATH_CLIPS                          = "../../Dataset/Videos/clips/"
+PATH_CLIPS                          = "../../Dataset/Videos/Clips/"
 
 PATH_ACTIONS_FILTERED               = "../../Dataset/Data/tmp/actions_filtered.csv"
 PATH_KEYPOINTS                      = "../../Dataset/Data/Unprocessed/keypoints.csv"
@@ -46,14 +45,14 @@ def process_video(video_path, person_model, pose_model, frame_ranges, pad=20):
         if fid not in action_lookup["LEFT"] and fid not in action_lookup["RIGHT"]:
             continue
 
-        # 1️⃣ Person detection
+        # Person detection
         res = person_model(frame, imgsz=1280, conf=0.25, verbose=False)
         boxes_full = []
         for r in res:
             for box in r.boxes.xyxy.cpu().numpy():
                 boxes_full.append(tuple(map(int, box)))
 
-        # 2️⃣ Filter by ROI + keep 2 largest
+        # Filter by ROI + keep 2 largest
         x1r, y1r, x2r, y2r = ROI
         boxes_filtered = []
         for b in boxes_full:
@@ -63,7 +62,7 @@ def process_video(video_path, person_model, pose_model, frame_ranges, pad=20):
         boxes_filtered.sort(key=lambda b: (b[2]-b[0]) * (b[3]-b[1]), reverse=True)
         boxes_filtered = boxes_filtered[:2]
 
-        # 3️⃣ Assign left/right box
+        # Assign left/right box
         left_box = right_box = None
         if len(boxes_filtered) == 2:
             if (boxes_filtered[0][0] + boxes_filtered[0][2]) / 2 < (boxes_filtered[1][0] + boxes_filtered[1][2]) / 2:
@@ -73,7 +72,7 @@ def process_video(video_path, person_model, pose_model, frame_ranges, pad=20):
         elif len(boxes_filtered) == 1:
             left_box, right_box = boxes_filtered[0], np.nan
 
-        # 4️⃣ Compute poses per fencer — only store if fencer has an action
+        # Compute poses per fencer — only store if fencer has an action
         for fencer, box in zip(["LEFT", "RIGHT"], [left_box, right_box]):
 
             # If this fencer has no action → skip row entirely
@@ -149,7 +148,7 @@ def process_video(video_path, person_model, pose_model, frame_ranges, pad=20):
     # Convert all rows to DataFrame
     frame_df = pd.DataFrame(frame_rows)
 
-    # -------- Metrics logic unchanged ------
+    # -------- Metrics logic ------
     metrics = []
     for fencer, ranges in frame_ranges.items():
         for action_id, start, end in ranges:
