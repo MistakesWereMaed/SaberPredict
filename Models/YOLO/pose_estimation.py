@@ -15,158 +15,149 @@ PATH_METRICS                        = "./metrics.csv"
 ROI = (0, 600, 1900, 850)
 IMAGE_SIZE = 1280
 
-def process_video(video_path, person_model, pose_model, frame_ranges):
+def pad_box(box, frame_shape, pad=10):
+    x1, y1, x2, y2 = box
+    h, w = frame_shape[:2]
+    x1_new = max(0, x1 - pad)
+    y1_new = max(0, y1 - pad)
+    x2_new = min(w, x2 + pad)
+    y2_new = min(h, y2 + pad)
+    return int(x1_new), int(y1_new), int(x2_new), int(y2_new)
+
+def process_video(video_path, person_model, pose_model, frame_ranges, pad=20):
     cap = cv2.VideoCapture(video_path)
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    frame_data = {}
 
-    # --- Rebuild fast lookup: frame → {fencer → action_id}
-    frame_to_actions = defaultdict(dict)
-    expected_pose_frames = defaultdict(lambda: defaultdict(int))  # action_id → fencer → count
-    actual_pose_frames   = defaultdict(lambda: defaultdict(int))
-
+    # Flatten all action frames for quick lookup
+    all_action_frames = set()
     for fencer, ranges in frame_ranges.items():
-        for start, end, action_id in ranges:
-            for f in range(start, end + 1):
-                frame_to_actions[f][fencer] = action_id
-                expected_pose_frames[action_id][fencer] += 1
+        for _, start, end in ranges:
+            all_action_frames.update(range(start, end+1))
 
-    # --- Output dictionary for all frames
-    frame_data = {
-        "frame": [],
-        "left_box": [],
-        "right_box": [],
-        "left_pose": [],
-        "right_pose": [],
-        "left_action_id": [],
-        "right_action_id": [],
-    }
-
-    frame_idx = 0
-
-    while True:
+    for fid in range(frame_count):
         ret, frame = cap.read()
         if not ret:
             break
 
-        # Skip frames not involved in ANY action for ANY fencer
-        if frame_idx not in frame_to_actions:
-            frame_idx += 1
+        # Skip frames not in action ranges
+        if fid not in all_action_frames:
+            frame_count -= 1
             continue
 
-        active_actions = frame_to_actions[frame_idx]  # dict: {fencer → action_id}
+        # 1️⃣ Person detection
+        res = person_model(frame, imgsz=1280, conf=0.25, verbose=False)
+        boxes_full = []
+        for r in res:
+            for box in r.boxes.xyxy.cpu().numpy():
+                boxes_full.append(tuple(map(int, box)))
 
-        # --- Step 1: Detect bounding boxes
-        det = person_model(frame, verbose=False, imgsz=IMAGE_SIZE)[0]
+        # 2️⃣ Filter boxes by ROI and keep up to 2 largest
+        x1r, y1r, x2r, y2r = ROI
+        boxes_filtered = []
+        for b in boxes_full:
+            cx, cy = (b[0]+b[2])/2, (b[1]+b[3])/2
+            if x1r <= cx <= x2r and y1r <= cy <= y2r:
+                boxes_filtered.append(b)
+        boxes_filtered.sort(key=lambda b: (b[2]-b[0])*(b[3]-b[1]), reverse=True)
+        boxes_filtered = boxes_filtered[:2]
 
-        boxes = det.boxes.xyxy.cpu().numpy() if det.boxes else []
-
-        # Apply ROI filtering
-        filtered = []
-        for b in boxes:
-            x1, y1, x2, y2 = map(int, b)
-            cx = (x1 + x2) / 2
-            cy = (y1 + y2) / 2
-            if (
-                ROI["x1"] <= cx <= ROI["x2"] and
-                ROI["y1"] <= cy <= ROI["y2"]
-            ):
-                filtered.append(b)
-
-        # Keep only the 2 largest boxes (if more than 2 remain)
-        if len(filtered) > 2:
-            areas = [(b, (b[2]-b[0]) * (b[3]-b[1])) for b in filtered]
-            filtered = [x[0] for x in sorted(areas, key=lambda v: v[1], reverse=True)[:2]]
-
-        # Pad boxes slightly
-        padded_boxes = []
-        pad = 20  # small padding
-        h, w = frame.shape[:2]
-
-        for b in filtered:
-            x1, y1, x2, y2 = b
-            x1 = max(0, x1 - pad)
-            y1 = max(0, y1 - pad)
-            x2 = min(w - 1, x2 + pad)
-            y2 = min(h - 1, y2 + pad)
-            padded_boxes.append([x1, y1, x2, y2])
-
-        # --- Step 2: Run pose estimation on each box
-        poses = []
-        for pb in padded_boxes:
-            x1, y1, x2, y2 = map(int, pb)
-            crop = frame[y1:y2, x1:x2]
-
-            if crop.size == 0:
-                poses.append(None)
-                continue
-
-            r = pose_model(crop, conf=0.5, verbose=False)[0]
-
-            if r.keypoints is None or len(r.keypoints.xy) == 0:
-                poses.append(None)
-                continue
-
-            # Choose best pose by highest mean keypoint confidence
-            best_idx = np.argmax(r.keypoints.conf.cpu().numpy().mean(axis=1))
-            kpts = r.keypoints.xy[best_idx].cpu().numpy()
-
-            # Re-offset to full frame coordinates
-            kpts[:, 0] += x1
-            kpts[:, 1] += y1
-
-            poses.append(kpts)
-
-        # --- Step 3: Assign left/right fencer
-        left_pose = right_pose = None
+        # 3️⃣ Assign left/right based on x-centroids
         left_box = right_box = None
-        left_action = right_action = np.nan
-
-        if len(padded_boxes) == 2:
-            # Left = smaller x1
-            if padded_boxes[0][0] < padded_boxes[1][0]:
-                left_box, right_box = padded_boxes
-                left_pose, right_pose = poses
+        if len(boxes_filtered) == 2:
+            if (boxes_filtered[0][0]+boxes_filtered[0][2])/2 < (boxes_filtered[1][0]+boxes_filtered[1][2])/2:
+                left_box, right_box = boxes_filtered
             else:
-                right_box, left_box = padded_boxes
-                right_pose, left_pose = poses
+                right_box, left_box = boxes_filtered
+        elif len(boxes_filtered) == 1:
+            left_box, right_box = boxes_filtered[0], np.nan
 
-        # --- Step 4: Assign action_id if applicable
-        if "LEFT" in active_actions:
-            left_action = active_actions["LEFT"]
-        if "RIGHT" in active_actions:
-            right_action = active_actions["RIGHT"]
+        # 4️⃣ Run pose estimation only if fencer has an action in this frame
+        poses_all = []
+        kpt_confs = []
 
-        # Count metrics
-        if left_pose is not None and not np.isnan(left_action):
-            actual_pose_frames[left_action]["LEFT"] += 1
-        if right_pose is not None and not np.isnan(right_action):
-            actual_pose_frames[right_action]["RIGHT"] += 1
+        for fencer, box in zip(["LEFT", "RIGHT"], [left_box, right_box]):
+            if isinstance(box, float) or box is None:
+                poses_all.append(np.nan)
+                kpt_confs.append(np.nan)
+                continue
 
-        # --- Save frame data
-        frame_data["frame"].append(frame_idx)
-        frame_data["left_box"].append(left_box)
-        frame_data["right_box"].append(right_box)
-        frame_data["left_pose"].append(left_pose)
-        frame_data["right_pose"].append(right_pose)
-        frame_data["left_action_id"].append(left_action)
-        frame_data["right_action_id"].append(right_action)
+            # Check if this fencer has an action in this frame
+            fencer_ranges = frame_ranges.get(fencer, [])
+            in_action = any(start <= fid <= end for _, start, end in fencer_ranges)
+            if not in_action:
+                poses_all.append(np.nan)
+                kpt_confs.append(np.nan)
+                continue
 
-        frame_idx += 1
+            # Crop + padding
+            fx1, fy1, fx2, fy2 = pad_box(box, frame.shape, pad)
+            crop = frame[fy1:fy2, fx1:fx2]
+            if crop.size == 0:
+                poses_all.append(np.nan)
+                kpt_confs.append(np.nan)
+                continue
 
-    cap.release()
+            # Pose detection
+            res_pose = pose_model(crop, conf=0.5, verbose=False)
+            poses_box, confs_box = [], []
+            for r in res_pose:
+                if r.keypoints is None or len(r.keypoints.xy) == 0:
+                    continue
+                for kpts in r.keypoints.xy.cpu().numpy():
+                    kpts[:,0] += fx1
+                    kpts[:,1] += fy1
+                    poses_box.append(kpts)
+                    if hasattr(r.keypoints, "conf") and len(r.keypoints.conf) > 0:
+                        confs_box.append(np.nanmean(r.keypoints.conf[0].cpu().numpy()))
+                    else:
+                        confs_box.append(1.0)
 
-    # --- Build final metrics
-    metrics = {
-        "expected_pose_frames": expected_pose_frames,
-        "actual_pose_frames": actual_pose_frames,
-        "coverage": (actual_pose_frames / expected_pose_frames) * 100
-    }
+            # Keep best pose per box (closest to box center)
+            if poses_box:
+                x1b, y1b, x2b, y2b = fx1, fy1, fx2, fy2
+                cx, cy = (x1b+x2b)/2, (y1b+y2b)/2
+                dists = [np.linalg.norm(np.mean(p, axis=0) - np.array([cx, cy])) for p in poses_box]
+                best_idx = np.argmin(dists)
+                poses_all.append(poses_box[best_idx])
+                kpt_confs.append(confs_box[best_idx])
+            else:
+                poses_all.append(np.nan)
+                kpt_confs.append(np.nan)
 
-    print("\nMetrics:")
-    print(f"Expected frames: {expected_pose_frames}")
-    print(f"Actual frames:   {actual_pose_frames}")
-    print(f"Coverage:        {metrics['coverage']:.2f}%\n")
+        # Store frame data
+        frame_data[fid] = {
+            "boxes": boxes_filtered,
+            "poses": poses_all,
+            "left_fencer": poses_all[0],
+            "right_fencer": poses_all[1] if len(poses_all)>1 else np.nan,
+        }
 
-    return frame_data, metrics
+    # -------------------
+    # 6️⃣ Calculate metrics per action
+    metrics = []
+    for fencer, ranges in frame_ranges.items():
+        for action_id, start, end in ranges:
+            expected = end - start + 1
+            actual = 0
+            for fid in range(start, end+1):
+                pose = frame_data[fid].get(f"{fencer.lower()}_fencer", np.nan)
+                if not isinstance(pose, float) and not (isinstance(pose, np.ndarray) and np.isnan(pose).all()):
+                    actual += 1
+            metrics.append({
+                "fencer": fencer,
+                "action_id": action_id,
+                "start_frame": start,
+                "end_frame": end,
+                "expected": expected,
+                "actual": actual,
+                "coverage": actual / expected * 100
+            })
+
+            print(f"{fencer} action {action_id} coverage: {actual}/{expected} = {actual/expected*100:.2f}%")
+
+    metrics_df = pd.DataFrame(metrics)
+    return frame_data, metrics_df
 
 def create_frame_ranges():
     df_filtered = pd.read_csv(PATH_ACTIONS_FILTERED)
@@ -177,9 +168,9 @@ def create_frame_ranges():
         for fencer, group_fencer in group_file.groupby("fencer"):
             ranges = list(
                 zip(
+                    group_fencer["action_id"],
                     group_fencer["start_frame"],
-                    group_fencer["end_frame"],
-                    group_fencer["action_id"]
+                    group_fencer["end_frame"]
                 )
             )
 
@@ -200,10 +191,6 @@ def process_all(person_model, pose_model, frame_ranges):
             full_path = os.path.join(root, file)
             rel_path = os.path.relpath(full_path, PATH_CLIPS)
 
-            if rel_path not in frame_ranges:
-                print(f"⚠️ Skipping {rel_path} — no action ranges found")
-                continue
-
             print(f"Processing: {rel_path}")
 
             # Run pipeline
@@ -212,15 +199,13 @@ def process_all(person_model, pose_model, frame_ranges):
                 person_model=person_model,
                 pose_model=pose_model,
                 frame_ranges=frame_ranges[rel_path],
-                roi=ROI
             )
 
-            # Convert each to DF
+            # Convert to DF
             frame_df = pd.DataFrame(frame_data)
-            metrics_df = pd.DataFrame(metrics, rel_path)
 
+            all_metrics_dfs.append(metrics)
             all_frame_data_dfs.append(frame_df)
-            all_metrics_dfs.append(metrics_df)
 
     # Combine into one DF each
     final_frame_df = pd.concat(all_frame_data_dfs, ignore_index=True)
@@ -233,6 +218,9 @@ def main():
     pose_model   = YOLO("yolo11x-pose.pt", task="pose")
     frame_ranges = create_frame_ranges()
 
-    all_metrics_df, frame_data_df = process_all(person_model, pose_model, frame_ranges)
-    all_metrics_df.to_csv(PATH_METRICS, index=False)
+    frame_data_df, metrics_df = process_all(person_model, pose_model, frame_ranges)
     frame_data_df.to_csv(PATH_KEYPOINTS, index=False)
+    metrics_df.to_csv(PATH_METRICS, index=False)
+
+if __name__ == "__main__":
+    main()
