@@ -18,6 +18,8 @@ def show_stats(df):
         display(HTML(html_str))
 
     def get_stats(df):
+        df = df.copy()
+        df["duration"] = df["end_frame"] - df["start_frame"]
         stats = (
             df.groupby("action")["duration"]
             .agg(["min", "max", "mean", "std"])
