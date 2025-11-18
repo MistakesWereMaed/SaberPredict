@@ -1,8 +1,6 @@
 import numpy as np
 import pandas as pd
 
-from sklearn.model_selection import train_test_split
-
 LEFT_RIGHT_PAIRS = [
     (1, 2),   # upper chest / clavicles
     (3, 4),   # upper arms
@@ -16,44 +14,54 @@ LEFT_RIGHT_PAIRS = [
     (15, 16), # ankles
 ]
 
-def horizontal_flip(keypoints, image_width):
-    keypoints = np.array(keypoints).copy()
+def duplicate_and_flip_actions(df, image_width, start_new_id=None):
+    df_mirror = df.copy()
 
-    # Flip x
-    keypoints[:, 0] = image_width - keypoints[:, 0]
+    # Determine new action_id starting point
+    if start_new_id is None:
+        if df["action_id"].dtype.kind in 'iuf':  # numeric
+            start_new_id = df["action_id"].max() + 1
+        else:
+            start_new_id = 0
 
-    # Swap LR indexes
-    for a, b in LEFT_RIGHT_PAIRS:
-        keypoints[a], keypoints[b] = keypoints[b].copy(), keypoints[a].copy()
+    # Map original action_id -> new mirrored action_id
+    unique_action_ids = df["action_id"].unique()
+    action_id_map = {aid: start_new_id + i for i, aid in enumerate(unique_action_ids)}
 
-    return keypoints
+    # Mirror keypoints
+    mirrored_keypoints = []
+    for kpts in df_mirror["keypoints"]:
+        if isinstance(kpts, list):
+            kpts = np.array(kpts)
+        if kpts is not None and not (isinstance(kpts, float) and np.isnan(kpts)):
+            kpts_flipped = kpts.copy()
+            kpts_flipped[:, 0] = np.round(image_width - kpts_flipped[:, 0], 2)
+            mirrored_keypoints.append([(float(x), float(y)) for x, y in kpts_flipped])
+        else:
+            mirrored_keypoints.append(np.nan)
+    df_mirror["keypoints"] = mirrored_keypoints
 
-def duplicate_and_flip_actions(df, image_width):
-    flipped_rows = []
-    last_action_id = df["action_id"].max().astype(int) + 1
+    if "box" in df.columns:
+        flipped_boxes = []
+        for b in df_mirror["box"]:
+            if isinstance(b, str):
+                b = tuple(map(float, eval(b)))
+            if b is None or (isinstance(b, float) and np.isnan(b)):
+                flipped_boxes.append(np.nan)
+            else:
+                x1, y1, x2, y2 = b
+                flipped_boxes.append((float(image_width - x2), float(y1), float(image_width - x1), float(y2)))
+        df_mirror["box"] = flipped_boxes
 
-    for _, group in df.groupby(["action_id"]):
-        fencer = group["fencer"].iloc[0]
-        action = group["action"].iloc[0]
+    # Swap fencer
+    df_mirror["fencer"] = df_mirror["fencer"].map({"LEFT": "RIGHT", "RIGHT": "LEFT"}).fillna(df_mirror["fencer"])   
 
-        # Flip fencer label
-        new_fencer = "LEFT" if fencer == "RIGHT" else "RIGHT"
+    # Assign new action_ids
+    df_mirror["action_id"] = df_mirror["action_id"].map(action_id_map)
 
-        for _, row in group.iterrows():
-            flipped_keypoints = horizontal_flip(row.keypoints, image_width)
-
-            new_row = row.copy()
-            new_row["fencer"] = new_fencer
-            new_row["keypoints"] = flipped_keypoints
-            new_row["action"] = action
-            new_row["action_id"] = last_action_id
-            flipped_rows.append(new_row)
-    
-        last_action_id += 1
-
-    df_flipped = pd.DataFrame(flipped_rows)
-    return pd.concat([df, df_flipped], ignore_index=True)
-
+    # Concatenate original + mirrored
+    df_combined = pd.concat([df, df_mirror], ignore_index=True)
+    return df_combined
 
 def augment_keypoints(keypoints, jitter_std=1.5, noise_std=1.0, scale_std=0.05, rotate_deg=4):
     keypoints = np.array(keypoints).astype(float)
@@ -91,14 +99,8 @@ def augment_all_actions(df, jitter_std=1.5, noise_std=1.0, scale_std=0.05, rotat
 
     return pd.DataFrame(df_augmented_rows)
 
-def create_action_windows(
-    df,
-    window_size=4,
-    windows_per_action=5,
-    random_state=42
-):
+def create_action_windows(df, window_size=4, base_windows=5, class_weights=None, random_state=42):
     rng = np.random.default_rng(random_state)
-
     window_rows = []
     window_counter = 0
 
@@ -106,19 +108,21 @@ def create_action_windows(
     df = df.sort_values(["action_id", "frame"]).reset_index(drop=True)
 
     for _, group in df.groupby(["action_id"]):
+        action = group["action"].iloc[0]
+
+        # Determine number of windows for this action
+        weight = class_weights.get(action, 1.0) if class_weights else 1.0
+        windows_per_action = max(1, int(round(base_windows * weight)))
+
         frames = group["frame"].values
-
-        # Determine all valid starting indices
         max_start = len(frames) - window_size
+        if max_start < 0:
+            continue  # action too short for a single window
 
-        # If action is barely long enough, take only 1 window
-        n_windows = min(windows_per_action, max_start + 1)
-
-        # Sample random starting indices
         start_indices = rng.choice(
             np.arange(0, max_start + 1),
-            size=n_windows,
-            replace=False if n_windows <= max_start + 1 else True
+            size=windows_per_action,
+            replace=False if windows_per_action <= max_start + 1 else True
         )
 
         for start in start_indices:
@@ -127,7 +131,6 @@ def create_action_windows(
 
             window_slice = group.iloc[start:start + window_size].copy()
             window_slice["window_id"] = window_id
-
             window_rows.append(window_slice)
 
     return pd.concat(window_rows, ignore_index=True)

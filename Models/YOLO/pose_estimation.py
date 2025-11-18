@@ -196,6 +196,14 @@ def create_frame_ranges():
 
     return frame_ranges
 
+def parse_and_convert_pose(pose_str):
+    if pd.isna(pose_str) or pose_str.strip() == "":
+        return []
+    # Flatten the string into numbers, works even if no commas
+    numbers = np.fromstring(pose_str.replace("[", "").replace("]", ""), sep=" ")
+    # Group into (x, y) tuples and convert to native Python floats
+    return [(float(numbers[i]), float(numbers[i+1])) for i in range(0, len(numbers), 2)]
+
 def process_all(person_model, pose_model, frame_ranges):
     all_frame_data_dfs = []
     all_metrics_dfs = []
@@ -225,10 +233,20 @@ def process_all(person_model, pose_model, frame_ranges):
             all_frame_data_dfs.append(frame_data)
 
     # Combine into one DF each
-    final_frame_df = pd.concat(all_frame_data_dfs, ignore_index=True)
+    df_keypoints = pd.concat(all_frame_data_dfs, ignore_index=True)
     final_metrics_df = pd.concat(all_metrics_dfs, ignore_index=True)
 
-    return final_frame_df, final_metrics_df
+    df_keypoints["pose"] = df_keypoints["pose"].apply(parse_and_convert_pose)
+    df_keypoints.rename(columns={
+        "frame_idx": "frame",
+        "pose": "keypoints",
+        "conf": "confidence"
+    }, inplace=True)
+    df_keypoints.sort_values(["file", "fencer", "frame"], inplace=True)
+    df_keypoints.reset_index(drop=True, inplace=True)
+
+    df_keypoints = df_keypoints[["file", "fencer", "frame", "box", "confidence", "keypoints"]]
+    return df_keypoints, final_metrics_df
 
 def main():
     person_model = YOLO("yolo11x.pt", task="detect")

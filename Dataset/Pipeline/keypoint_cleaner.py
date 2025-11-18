@@ -1,32 +1,6 @@
 import numpy as np
 import pandas as pd
 
-def assign_fencer_labels(df):
-    df = df.groupby(["file", "frame"]).filter(lambda g: len(g) == 2).copy()
-    df = df.sort_values(["file", "frame"]).copy()
-
-    fencers = []
-
-    for (file, frame), group in df.groupby(["file", "frame"]):
-        idxs = group.index.tolist()
-        kps = group["keypoints"].tolist()
-
-        # Compute mean X for each row
-        means = [np.mean([p[0] for p in kp]) for kp in kps]
-
-        # Left = lower X, Right = higher X
-        left_idx = idxs[np.argmin(means)]
-        right_idx = idxs[np.argmax(means)]
-
-        fencers.append((left_idx, "LEFT"))
-        fencers.append((right_idx, "RIGHT"))
-
-    # Apply assignments
-    for idx, label in fencers:
-        df.loc[idx, "fencer"] = label
-
-    return df
-
 def interpolate_action_group(group):
     stats = {
         "processed": 1,
@@ -93,8 +67,8 @@ def interpolate_action_group(group):
         y_vals = xy[:, 1]
 
         # Linear interpolation
-        x_interp = np.interp(full_frames, frames, x_vals)
-        y_interp = np.interp(full_frames, frames, y_vals)
+        x_interp = np.round(np.interp(full_frames, frames, x_vals), 2)
+        y_interp = np.round(np.interp(full_frames, frames, y_vals), 2)
 
         interp_keypoints.append(np.vstack([x_interp, y_interp]).T)
 
