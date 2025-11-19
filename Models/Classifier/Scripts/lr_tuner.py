@@ -26,7 +26,7 @@ def main():
     trainer = pl.Trainer(
         max_epochs=MAX_EPOCHS,
         accelerator="gpu",
-        logger=None,
+        logger=False,
         callbacks=None,
         gradient_clip_val=1.0
     )

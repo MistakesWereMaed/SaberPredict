@@ -15,7 +15,7 @@ PATH_CHECKPOINTS    = "../Model/Checkpoints"
 PROJECT_NAME        = "SaberPredict"
 
 BATCH_SIZE          = 32
-MAX_EPOCHS          = 50
+MAX_EPOCHS          = 100
 TUNED_LR            = 0.00052022644346174131
 
 def main():
@@ -61,7 +61,7 @@ def main():
         gradient_clip_val=1.0
     )
 
-    ckpt_path = "best" if args.resume else None
+    ckpt_path = PATH_CHECKPOINTS + "/large.ckpt" if args.resume else None
     trainer.fit(model, data, ckpt_path=ckpt_path)
     trainer.test(model, data)
 

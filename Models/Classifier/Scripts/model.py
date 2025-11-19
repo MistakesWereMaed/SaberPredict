@@ -39,54 +39,66 @@ class CenterLoss(nn.Module):
         return self.lambda_c * ((features - centers_batch)**2).mean()
 
 class GNN(pl.LightningModule):
-    def __init__(self, num_classes, label_dict, lr):
+    def __init__(
+        self,
+        num_classes,
+        label_dict,
+        lr,
+        embed_dim=768,
+        gnn_hidden=768,
+        fc_hidden=768,
+        attn_heads=64,
+        center_lambda=0.1,
+    ):
         super().__init__()
         self.save_hyperparameters()
 
+        # Center loss
         self.center_loss_fn = CenterLoss(
             num_classes=num_classes,
-            feat_dim=64,   # size of embedding before FC
-            lambda_c=0.1
+            feat_dim=gnn_hidden,   # embedding size before FC
+            lambda_c=center_lambda
         )
-        
-        # 1. Embed 2D coords
+
+        # 1. Node embedding from 2D coords
         self.node_embed = nn.Sequential(
-            nn.Linear(2, 64),
+            nn.Linear(2, embed_dim),
             nn.ReLU(),
-            nn.Linear(64, 64)
+            nn.Linear(embed_dim, gnn_hidden)
         )
 
         # 2. GNN layers with residual connections
         self.gnn1 = GINConv(nn.Sequential(
-            nn.Linear(64, 64),
+            nn.Linear(gnn_hidden, gnn_hidden),
             nn.ReLU(),
-            nn.Linear(64, 64)
+            nn.Linear(gnn_hidden, gnn_hidden)
         ))
+
         self.gnn2 = GINConv(nn.Sequential(
-            nn.Linear(64, 64),
+            nn.Linear(gnn_hidden, gnn_hidden),
             nn.ReLU(),
-            nn.Linear(64, 64)
+            nn.Linear(gnn_hidden, gnn_hidden)
         ))
 
-        # 3. LayerNorm helps stability
-        self.ln1 = nn.LayerNorm(64)
-        self.ln2 = nn.LayerNorm(64)
+        # 3. LayerNorm for stability
+        self.ln1 = nn.LayerNorm(gnn_hidden)
+        self.ln2 = nn.LayerNorm(gnn_hidden)
 
-        # 4. Learnable attention over time
-        self.temporal_attn = nn.MultiheadAttention(64, 4)
+        # 4. Temporal attention
+        self.temporal_attn = nn.MultiheadAttention(gnn_hidden, attn_heads)
 
         # 5. Classifier
         self.fc = nn.Sequential(
-            nn.Linear(64, 128),
+            nn.Linear(gnn_hidden, fc_hidden),
             nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(128, num_classes)
+            nn.Linear(fc_hidden, num_classes)
         )
 
         # Precompute skeleton edges
         edges = torch.tensor(EDGES, dtype=torch.long).t()  # shape (2, E)
         edges_undirected = torch.cat([edges, edges.flip(0)], dim=1)
         self.register_buffer("edge_index_base", edges_undirected)
+
         # Metrics
         self.train_acc = Accuracy(task="multiclass", num_classes=num_classes)
         self.val_acc   = Accuracy(task="multiclass", num_classes=num_classes)
@@ -144,6 +156,8 @@ class GNN(pl.LightningModule):
         self.log("train_loss", loss)
         self.log("train_ce", ce_loss)
         self.log("train_center_loss", center_loss)
+
+        self.confmat(logits, y)
 
         return loss
 
@@ -203,5 +217,9 @@ class GNN(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams.lr)
-
-        return optimizer
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3, min_lr=1e-7)
+        
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {"scheduler": scheduler, "monitor": "val_loss", "interval": "epoch"}
+        }
