@@ -1,6 +1,8 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+import math
+import random
 import cv2
 
 from IPython.display import display, HTML
@@ -37,7 +39,7 @@ def show_stats(df):
 
     def get_stats(df):
         df = df.copy()
-        df["duration"] = df["end_frame"] - df["start_frame"]
+        df["duration"] = df["end_frame"] - df["start_frame"] + 1
         stats = (
             df.groupby("action")["duration"]
             .agg(["min", "max", "mean", "std"])
@@ -59,11 +61,11 @@ def show_stats(df):
 
     display_side_by_side([stats_offense, stats_defense], titles=["Offensive Action Frame Durations", "Defensive Actions Frame Durations"])
 
-    print(f"Total Offensive Actions: {total_offensive}")
-    print(f"Total Defensive Actions: {total_defensive}")
+    print(f"Total Offensive Frames: {total_offensive}")
+    print(f"Total Defensive Frames: {total_defensive}")
 
-    print(f"\nTotal Actions: {total_actions}")
-    print("Total action classes: ", df["action"].nunique())
+    print(f"\nTotal Frames: {total_actions}")
+    print("Total classes: ", df["action"].nunique())
     print("")
 
 def plot_skeleton(frame, keypoints, color=(0,1,0), alpha=0.8):
@@ -113,40 +115,38 @@ def draw_random_frame(df):
 
     cap.release()
 
-def draw_random_window(df_windows, window_size=4):
-    import random
-
-    # Pick a random window_id
+def draw_random_window(df_windows):
     window_id = random.choice(df_windows["window_id"].unique())
     window_df = df_windows[df_windows["window_id"] == window_id].sort_values("frame")
 
-    # Get video file path (assume all rows have the same file)
     video_file = window_df["file"].iloc[0]
     video_path = f"{PATH_CLIPS}/{video_file}"
-
     cap = cv2.VideoCapture(video_path)
+
     frame_indices = window_df["frame"].values
     keypoints_list = window_df["keypoints"].values
     fencer_list = window_df["fencer"].values
-
     action = window_df["action"].iloc[0]
 
-    plt.figure(figsize=(20, 5))
-    
+    n_frames = len(frame_indices)
+    ncols = 4
+    nrows = math.ceil(n_frames / ncols)
+
+    plt.figure(figsize=(4 * ncols, 4 * nrows))
+
     for i, (fid, kpts, fencer) in enumerate(zip(frame_indices, keypoints_list, fencer_list)):
-        # Go to the frame
         cap.set(cv2.CAP_PROP_POS_FRAMES, fid)
         ret, frame = cap.read()
         if not ret:
             continue
 
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        ax = plt.subplot(1, window_size, i+1)
+        ax = plt.subplot(nrows, ncols, i+1)
         ax.imshow(frame_rgb)
         ax.axis("off")
-        ax.set_title(f"{fencer} - Frame {fid} - Action: {action}")
+        ax.set_title(f"{fencer} - Frame {fid}")
 
-        # Convert keypoints string/list to numpy if necessary
+        # Convert keypoints to numpy array if needed
         if isinstance(kpts, str):
             kpts = np.array(eval(kpts))
         elif isinstance(kpts, list):
@@ -155,6 +155,7 @@ def draw_random_window(df_windows, window_size=4):
         if kpts is not None and not (isinstance(kpts, float) and np.isnan(kpts)):
             plot_skeleton(ax, kpts, color=(0,1,0) if fencer=="LEFT" else (1,0,0))
 
+    plt.suptitle(f"Action: {action}", fontsize=16)
     plt.tight_layout()
     plt.show()
     cap.release()
