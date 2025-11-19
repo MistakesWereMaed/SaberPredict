@@ -1,181 +1,227 @@
+# models/tcn_fencenet.py
+import math
+import wandb
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
-import wandb
 
+from typing import List, Optional
 from torchmetrics import Accuracy, ConfusionMatrix
-from torch_geometric.nn import GINConv
 
-EDGES = [
-    (0, 1), (1, 3),
-    (3, 5), (1, 2),
-    (0, 2), (2, 4),
-    (4, 6),
-    (5, 7), (7, 9),     # left arm
-    (6, 8), (8, 10),    # right arm
-    (5, 6),             # shoulders
-    (11, 12),           # hips
-    (5, 11), (6, 12),   # torso
-    (11, 13), (13, 15), # left leg
-    (12, 14), (14, 16)  # right leg
-]
 
-class CenterLoss(nn.Module):
-    def __init__(self, num_classes, feat_dim, lambda_c=1.0):
+class TemporalBlock(nn.Module):
+    """Single residual temporal block: Conv1d -> ReLU -> Dropout -> Conv1d -> ReLU -> Dropout + residual"""
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, dilation: int, dropout: float):
         super().__init__()
-        self.num_classes = num_classes
-        self.feat_dim = feat_dim
-        self.lambda_c = lambda_c
+        padding = (kernel_size - 1) // 2 * dilation  # symmetric padding to preserve length (non-causal)
+        self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size,
+                               padding=padding, dilation=dilation)
+        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size,
+                               padding=padding, dilation=dilation)
+        self.dropout = nn.Dropout(dropout)
+        self.relu = nn.ReLU()
+        # adjust residual if channel dims differ
+        self.downsample = nn.Conv1d(in_channels, out_channels, 1) if in_channels != out_channels else None
+        self.init_weights()
 
-        # Learnable centers
-        self.centers = nn.Parameter(torch.randn(num_classes, feat_dim))
+    def init_weights(self):
+        nn.init.kaiming_normal_(self.conv1.weight, nonlinearity='relu')
+        nn.init.zeros_(self.conv1.bias)
+        nn.init.kaiming_normal_(self.conv2.weight, nonlinearity='relu')
+        nn.init.zeros_(self.conv2.bias)
+        if self.downsample is not None:
+            nn.init.kaiming_normal_(self.downsample.weight, nonlinearity='relu')
+            nn.init.zeros_(self.downsample.bias)
 
-    def forward(self, features, labels):
-        # features: (B, feat_dim)
-        # labels: (B,)
-        centers_batch = self.centers[labels]        # (B, feat_dim)
-        return self.lambda_c * ((features - centers_batch)**2).mean()
+    def forward(self, x):
+        # x: (B, C, T)
+        out = self.conv1(x)
+        out = self.relu(out)
+        out = self.dropout(out)
 
-class GNN(pl.LightningModule):
+        out = self.conv2(out)
+        out = self.relu(out)
+        out = self.dropout(out)
+
+        res = x if self.downsample is None else self.downsample(x)
+        return self.relu(out + res)
+
+
+class TemporalConvNet(nn.Module):
+    """Stack of TemporalBlocks with increasing dilation"""
+    def __init__(self, in_channels: int, channels: List[int], kernel_size: int = 3, dropout: float = 0.1):
+        """
+        channels: list of out_channels per level (len = n_levels)
+        dilation doubles each layer: 1, 2, 4, ...
+        """
+        super().__init__()
+        layers = []
+        num_levels = len(channels)
+        prev_channels = in_channels
+        for i in range(num_levels):
+            dilation = 2 ** i
+            layers.append(TemporalBlock(prev_channels, channels[i], kernel_size, dilation, dropout))
+            prev_channels = channels[i]
+        self.network = nn.Sequential(*layers)
+
+    def forward(self, x):
+        # x: (B, C, T)
+        return self.network(x)  # (B, C_last, T)
+
+
+class TCN(pl.LightningModule):
+    """
+    TCN baseline classifier (FenceNet-style).
+    Input: x shape (B, T, V, C)  (e.g. (B, 8, 17, 2))
+    Output: logits (B, num_classes), embedding (B, embed_dim)
+    """
     def __init__(
         self,
-        num_classes,
-        label_dict,
-        lr,
-        embed_dim=768,
-        gnn_hidden=768,
-        fc_hidden=768,
-        attn_heads=64,
-        center_lambda=0.1,
+        label_dict: dict,
+        num_classes: int,
+        num_joints: int = 17,
+        num_frames: int = 8,
+        coord_dim: int = 2,
+        tcn_channels: Optional[List[int]] = None,  # channels for each temporal level
+        kernel_size: int = 3,
+        dropout: float = 0.1,
+        fc_hidden: int = 768,
+        lr: float = 3e-4,
+        weight_decay: float = 1e-4,
+        use_onecycle: bool = True,
+        max_epochs: int = 50,
     ):
         super().__init__()
         self.save_hyperparameters()
 
-        # Center loss
-        self.center_loss_fn = CenterLoss(
-            num_classes=num_classes,
-            feat_dim=gnn_hidden,   # embedding size before FC
-            lambda_c=center_lambda
+        if tcn_channels is None:
+            tcn_channels = [128, 128, 256]  # default 3-level TCN
+
+        self.num_classes = num_classes
+        self.V = num_joints
+        self.T = num_frames
+        self.coord_dim = coord_dim
+
+        # TCN input channels = V * coord_dim (one channel per coordinate per joint)
+        in_ch = self.V * self.coord_dim
+        self.tcn = TemporalConvNet(in_channels=in_ch, channels=tcn_channels, kernel_size=kernel_size, dropout=dropout)
+
+        tcn_out_ch = tcn_channels[-1]
+        # embedding projection after temporal pooling (global time avg)
+        self.embedding_proj = nn.Sequential(
+            nn.Linear(tcn_out_ch, fc_hidden),
+            nn.ReLU(),
+            nn.LayerNorm(fc_hidden),
         )
 
-        # 1. Node embedding from 2D coords
-        self.node_embed = nn.Sequential(
-            nn.Linear(2, embed_dim),
-            nn.ReLU(),
-            nn.Linear(embed_dim, gnn_hidden)
-        )
+        self.classifier = nn.Linear(fc_hidden, num_classes)
 
-        # 2. GNN layers with residual connections
-        self.gnn1 = GINConv(nn.Sequential(
-            nn.Linear(gnn_hidden, gnn_hidden),
-            nn.ReLU(),
-            nn.Linear(gnn_hidden, gnn_hidden)
-        ))
-
-        self.gnn2 = GINConv(nn.Sequential(
-            nn.Linear(gnn_hidden, gnn_hidden),
-            nn.ReLU(),
-            nn.Linear(gnn_hidden, gnn_hidden)
-        ))
-
-        # 3. LayerNorm for stability
-        self.ln1 = nn.LayerNorm(gnn_hidden)
-        self.ln2 = nn.LayerNorm(gnn_hidden)
-
-        # 4. Temporal attention
-        self.temporal_attn = nn.MultiheadAttention(gnn_hidden, attn_heads)
-
-        # 5. Classifier
-        self.fc = nn.Sequential(
-            nn.Linear(gnn_hidden, fc_hidden),
-            nn.ReLU(),
-            nn.Linear(fc_hidden, num_classes)
-        )
-
-        # Precompute skeleton edges
-        edges = torch.tensor(EDGES, dtype=torch.long).t()  # shape (2, E)
-        edges_undirected = torch.cat([edges, edges.flip(0)], dim=1)
-        self.register_buffer("edge_index_base", edges_undirected)
-
-        # Metrics
+        # metrics
         self.train_acc = Accuracy(task="multiclass", num_classes=num_classes)
-        self.val_acc   = Accuracy(task="multiclass", num_classes=num_classes)
-        self.test_acc  = Accuracy(task="multiclass", num_classes=num_classes)
-        self.confmat   = ConfusionMatrix(task="multiclass", num_classes=num_classes)
+        self.val_acc = Accuracy(task="multiclass", num_classes=num_classes)
+        self.test_acc = Accuracy(task="multiclass", num_classes=num_classes)
+        self.confmat = ConfusionMatrix(task="multiclass", num_classes=num_classes)
 
-    def forward(self, x):
+        # optimizer config
+        self.lr = lr
+        self.weight_decay = weight_decay
+        self.use_onecycle = use_onecycle
+        self.max_epochs = max_epochs
+
+        self._init_weights()
+
+    def _init_weights(self):
+        def init_fn(m):
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            if isinstance(m, nn.LayerNorm):
+                if m.weight is not None:
+                    nn.init.ones_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+        self.apply(init_fn)
+
+    def _normalize_input(self, x: torch.Tensor):
+        # Simple per-sample center + scale normalization (same as earlier helpers)
+        # center by mean across joints per frame, then divide by max pairwise dist across joints per frame.
         B, T, V, C = x.shape
+        center = x.mean(dim=2, keepdim=True)  # (B, T, 1, C)
+        k = x - center
+        # estimate body size
+        k_resh = k.reshape(B * T, V, C)
+        dists = torch.cdist(k_resh, k_resh, p=2)  # (B*T, V, V)
+        max_d = dists.view(B, T, -1).max(dim=2)[0].view(B, T, 1, 1)  # (B, T, 1, 1)
+        eps = 1e-6
+        return k / (max_d + eps)
 
-        # Build edge index for all nodes in batch
-        E = self.edge_index_base.shape[1]
-        repeats = torch.arange(B*T, device=x.device).repeat_interleave(E) * V
-        edge_index = self.edge_index_base.repeat(1, B*T) + repeats
+    def forward(self, x: torch.Tensor):
+        """
+        x: (B, T, V, C)
+        returns: logits (B, num_classes), emb (B, fc_hidden)
+        """
+        B, T, V, C = x.shape
+        assert V == self.V and T == self.T and C == self.coord_dim, f"Expect (B,{self.T},{self.V},{self.coord_dim})"
 
-        # Node embedding
-        x = self.node_embed(x)
+        # Normalize per-sample per-frame (center by mean, scale by max dist)
+        x = self._normalize_input(x)  # (B,T,V,C)
 
-        # Flatten nodes
-        x = x.reshape(B*T*V, -1)
+        # reshape to (B, channels, T)
+        # channels = V * C (each joint coordinate is its own channel)
+        x_ch = x.permute(0, 2, 3, 1).reshape(B, V * C, T)  # (B, V*C, T)
 
-        # GNN with residuals
-        h = F.relu(self.gnn1(x, edge_index))
-        x = self.ln1(h + x)
+        tcn_out = self.tcn(x_ch)  # (B, out_ch, T)
 
-        h = F.relu(self.gnn2(x, edge_index))
-        x = self.ln2(h + x)
+        # global temporal pooling (average)
+        pooled = tcn_out.mean(dim=2)  # (B, out_ch)
 
-        # Reshape back
-        x = x.reshape(B, T, V, -1)
-
-        # Temporal pooling
-        x = x.mean(dim=2)  # average joints → (B, T, H)
-
-        # Temporal attention
-        x = x.permute(1,0,2)  # T,B,H
-        x, _ = self.temporal_attn(x, x, x)
-        x = x.mean(dim=0)  # B,H
-
-        emb = x  # after temporal pooling (B, H)
-        logits = self.fc(emb)
+        emb = self.embedding_proj(pooled)  # (B, fc_hidden)
+        logits = self.classifier(emb)  # (B, num_classes)
         return logits, emb
-    
-    def loss(self, preds, y):
-        return F.cross_entropy(preds, y, label_smoothing=0.1)
 
+    # -------------------------
+    # training / validation steps
+    # -------------------------
     def training_step(self, batch, batch_idx):
         x, y = batch
+
         logits, emb = self(x)
+        loss = F.cross_entropy(logits, y)
+        preds = torch.argmax(logits, dim=1)
 
-        ce_loss = F.cross_entropy(logits, y, label_smoothing=0.1)
-        center_loss = self.center_loss_fn(emb, y)
-
-        loss = ce_loss + center_loss
-
-        self.log("train_loss", loss)
-        self.log("train_ce", ce_loss)
-        self.log("train_center_loss", center_loss)
-
-        self.confmat(logits, y)
+        self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+        self.log("train_acc", self.train_acc(preds, y), prog_bar=True, on_step=False, on_epoch=True)
 
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
-        preds, _ = self(x)
-        loss = self.loss(preds, y)
-        acc = self.val_acc(preds, y)
 
-        self.log("val_loss", loss, prog_bar=True, sync_dist=True)
-        self.log("val_acc", acc, prog_bar=True, sync_dist=True)
+        logits, emb = self(x)
+        loss = F.cross_entropy(logits, y)
+        preds = torch.argmax(logits, dim=1)
+
+        self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+        self.log("val_acc", self.val_acc(preds, y), prog_bar=True, on_step=False, on_epoch=True)
+
+        return {"val_loss": loss, "preds": preds, "target": y}
 
     def test_step(self, batch, batch_idx):
         x, y = batch
-        preds, _ = self(x)
-        acc = self.val_acc(preds, y)
 
-        self.log("test_acc", acc, prog_bar=True)
+        logits, emb = self(x)
+        loss = F.cross_entropy(logits, y)
+        preds = torch.argmax(logits, dim=1)
+
+        self.log("test_loss", loss, prog_bar=True)
+        self.log("test_acc", self.test_acc(preds, y), prog_bar=True)
+
+        self.confmat(preds, y)
+
+        return {"test_loss": loss, "preds": preds, "target": y}
     
     def on_test_epoch_end(self):
         # Compute confusion matrix and add per-class accuracies
@@ -216,10 +262,33 @@ class GNN(pl.LightningModule):
         plt.close(fig)
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams.lr)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3, min_lr=1e-7)
-        
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {"scheduler": scheduler, "monitor": "val_loss", "interval": "epoch"}
-        }
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        if self.use_onecycle:
+            # OneCycleLR requires total_steps - use estimated from trainer if available
+            scheduler = None
+            try:
+                total_steps = self.trainer.estimated_stepping_batches
+                scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                    optimizer,
+                    max_lr=self.lr,
+                    total_steps=total_steps,
+                    pct_start=0.1,
+                    anneal_strategy="cos",
+                    div_factor=25.0,
+                    final_div_factor=1e4,
+                )
+                return {
+                    "optimizer": optimizer,
+                    "lr_scheduler": {
+                        "scheduler": scheduler,
+                        "interval": "step",
+                        "frequency": 1
+                    }
+                }
+            except Exception:
+                # Trainer not attached yet -> return optimizer only and let the caller handle scheduling
+                return optimizer
+        else:
+            # simple lr scheduler by epoch
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
+            return {"optimizer": optimizer, "lr_scheduler": {"scheduler": scheduler, "monitor": "val_loss"}}

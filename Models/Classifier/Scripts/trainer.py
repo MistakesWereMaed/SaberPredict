@@ -3,7 +3,7 @@ import argparse
 import wandb
 
 from dataloader import SkeletonDataModule
-from model import GNN
+from model import TCN
 
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
@@ -15,7 +15,7 @@ PATH_CHECKPOINTS    = "../Model/Checkpoints"
 PROJECT_NAME        = "SaberPredict"
 
 BATCH_SIZE          = 32
-MAX_EPOCHS          = 100
+MAX_EPOCHS          = 75
 TUNED_LR            = 0.00052022644346174131
 
 def main():
@@ -38,7 +38,7 @@ def main():
     )
     data.setup()
 
-    model = GNN(
+    model = TCN(
         num_classes=data.num_classes,
         label_dict=data.label_dict,
         lr=TUNED_LR
@@ -55,10 +55,10 @@ def main():
     trainer = pl.Trainer(
         max_epochs=MAX_EPOCHS,
         accelerator="gpu",
+        devices=1,
         logger=wandb_logger,
         log_every_n_steps=10,
-        callbacks=[checkpoint_callback],
-        gradient_clip_val=1.0
+        callbacks=[checkpoint_callback]
     )
 
     ckpt_path = PATH_CHECKPOINTS + "/large.ckpt" if args.resume else None
