@@ -1,4 +1,3 @@
-# dataset.py
 import torch
 import pandas as pd
 import numpy as np
@@ -6,6 +5,8 @@ import pytorch_lightning as pl
 
 from torch.utils.data import DataLoader, random_split
 from torch.utils.data import Dataset
+
+WINDOW_SIZE = 8
 
 class SkeletonDataset(Dataset):
     def __init__(self, csv_path):
@@ -23,9 +24,9 @@ class SkeletonDataset(Dataset):
         for wid, group in df.groupby("window_id"):
             group = group.sort_values("frame")
 
-            # Convert keypoints to (4,17,2)
-            kpts = group[kpt_cols].values      # (4,34)
-            kpts = kpts.reshape(4, 17, 2)
+            # Convert keypoints to (8,17,2)
+            kpts = group[kpt_cols].values      # (8,34)
+            kpts = kpts.reshape(WINDOW_SIZE, 17, 2)
 
             label_str = group["action"].iloc[0]
             label_id = self.label_to_id[label_str]
@@ -40,7 +41,7 @@ class SkeletonDataset(Dataset):
     def __getitem__(self, idx):
         kpts, label = self.samples[idx]
         return (
-            torch.from_numpy(kpts),                 # (4,17,2)
+            torch.from_numpy(kpts),
             torch.tensor(label, dtype=torch.long)
         )
 
@@ -61,8 +62,9 @@ class SkeletonDataModule(pl.LightningDataModule):
         test_size = int(0.1 * N)
         train_size = N - val_size - test_size
 
+        seed = torch.Generator().manual_seed(42)
         self.train_set, self.val_set, self.test_set = random_split(
-            dataset, [train_size, val_size, test_size]
+            dataset, [train_size, val_size, test_size], generator=seed
         )
 
     def train_dataloader(self):

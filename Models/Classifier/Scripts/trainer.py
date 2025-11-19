@@ -1,4 +1,5 @@
 import pytorch_lightning as pl
+import argparse
 import wandb
 
 from dataloader import SkeletonDataModule
@@ -12,15 +13,20 @@ PATH_LOGS           = "../Model/Logs"
 PATH_CHECKPOINTS    = "../Model/Checkpoints"
 
 PROJECT_NAME        = "SaberPredict"
-MODEL_NAME          = "gnn-baseline"
 
 BATCH_SIZE          = 32
 MAX_EPOCHS          = 50
+TUNED_LR            = 0.00052022644346174131
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--resume", action="store_true", default=False)
+    parser.add_argument("--model", type=str, default="gnn-baseline")
+    args = parser.parse_args()
+
     wandb_logger = WandbLogger(
         project=PROJECT_NAME,
-        name=MODEL_NAME,
+        name=args.model,
         save_dir=PATH_LOGS,
         log_model=True,
     )
@@ -35,12 +41,13 @@ def main():
     model = GNN(
         num_classes=data.num_classes,
         label_dict=data.label_dict,
-        lr=1e-3
+        lr=TUNED_LR
     )
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=PATH_CHECKPOINTS,
-        filename="{MODEL_NAME}-{epoch:02d}-{val_loss:.4f}",
+        filename="gnn-{epoch:02d}-{val_loss:.4f}",
+        save_top_k=1,
         monitor="val_loss",
         mode="min"
     )
@@ -51,9 +58,11 @@ def main():
         logger=wandb_logger,
         log_every_n_steps=10,
         callbacks=[checkpoint_callback],
+        gradient_clip_val=1.0
     )
 
-    trainer.fit(model, data)
+    ckpt_path = "best" if args.resume else None
+    trainer.fit(model, data, ckpt_path=ckpt_path)
     trainer.test(model, data)
 
     wandb.finish()

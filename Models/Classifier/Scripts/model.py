@@ -6,9 +6,9 @@ import pytorch_lightning as pl
 import wandb
 
 from torchmetrics import Accuracy, ConfusionMatrix
-from torch_geometric.nn import GCNConv
+from torch_geometric.nn import GINConv
 
-skeleton = [
+EDGES = [
     (0, 1), (1, 3),
     (3, 5), (1, 2),
     (0, 2), (2, 4),
@@ -22,102 +22,148 @@ skeleton = [
     (12, 14), (14, 16)  # right leg
 ]
 
+class CenterLoss(nn.Module):
+    def __init__(self, num_classes, feat_dim, lambda_c=1.0):
+        super().__init__()
+        self.num_classes = num_classes
+        self.feat_dim = feat_dim
+        self.lambda_c = lambda_c
+
+        # Learnable centers
+        self.centers = nn.Parameter(torch.randn(num_classes, feat_dim))
+
+    def forward(self, features, labels):
+        # features: (B, feat_dim)
+        # labels: (B,)
+        centers_batch = self.centers[labels]        # (B, feat_dim)
+        return self.lambda_c * ((features - centers_batch)**2).mean()
+
 class GNN(pl.LightningModule):
     def __init__(self, num_classes, label_dict, lr):
         super().__init__()
         self.save_hyperparameters()
 
-        self.in_channels = 2
-        self.hidden = 64
-
-        # Spatial GNN layers
-        self.gnn1 = GCNConv(self.in_channels, self.hidden)
-        self.gnn2 = GCNConv(self.hidden, self.hidden)
-
-        # Temporal convolution over 4 frames
-        self.temporal_conv = nn.Conv1d(
-            in_channels=self.hidden,
-            out_channels=self.hidden,
-            kernel_size=3,
-            padding=1
+        self.center_loss_fn = CenterLoss(
+            num_classes=num_classes,
+            feat_dim=64,   # size of embedding before FC
+            lambda_c=0.1
+        )
+        
+        # 1. Embed 2D coords
+        self.node_embed = nn.Sequential(
+            nn.Linear(2, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64)
         )
 
-        # Classifier
-        self.fc = nn.Sequential(
-            nn.Linear(self.hidden, 128),
+        # 2. GNN layers with residual connections
+        self.gnn1 = GINConv(nn.Sequential(
+            nn.Linear(64, 64),
             nn.ReLU(),
+            nn.Linear(64, 64)
+        ))
+        self.gnn2 = GINConv(nn.Sequential(
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64)
+        ))
+
+        # 3. LayerNorm helps stability
+        self.ln1 = nn.LayerNorm(64)
+        self.ln2 = nn.LayerNorm(64)
+
+        # 4. Learnable attention over time
+        self.temporal_attn = nn.MultiheadAttention(64, 4)
+
+        # 5. Classifier
+        self.fc = nn.Sequential(
+            nn.Linear(64, 128),
+            nn.ReLU(),
+            nn.Dropout(0.1),
             nn.Linear(128, num_classes)
         )
 
-        # Precompute static skeleton graph
-        edges = torch.tensor(skeleton, dtype=torch.long).t()  # shape (2, E)
+        # Precompute skeleton edges
+        edges = torch.tensor(EDGES, dtype=torch.long).t()  # shape (2, E)
         edges_undirected = torch.cat([edges, edges.flip(0)], dim=1)
         self.register_buffer("edge_index_base", edges_undirected)
-
         # Metrics
         self.train_acc = Accuracy(task="multiclass", num_classes=num_classes)
-        self.val_acc = Accuracy(task="multiclass", num_classes=num_classes)
-        self.test_acc = Accuracy(task="multiclass", num_classes=num_classes)
-
-        self.confmat = ConfusionMatrix(task="multiclass", num_classes=num_classes)
+        self.val_acc   = Accuracy(task="multiclass", num_classes=num_classes)
+        self.test_acc  = Accuracy(task="multiclass", num_classes=num_classes)
+        self.confmat   = ConfusionMatrix(task="multiclass", num_classes=num_classes)
 
     def forward(self, x):
         B, T, V, C = x.shape
-        x = x.reshape(B*T, V, C)
-        x = x.reshape(B*T*V, C)   # flatten all nodes
 
-        # Build edge index for all frames in the batch
+        # Build edge index for all nodes in batch
         E = self.edge_index_base.shape[1]
-        repeats = torch.arange(B*T, device=self.device).repeat_interleave(E) * V
+        repeats = torch.arange(B*T, device=x.device).repeat_interleave(E) * V
         edge_index = self.edge_index_base.repeat(1, B*T) + repeats
 
-        # Spatial GNN
-        x = F.relu(self.gnn1(x, edge_index))
-        x = F.relu(self.gnn2(x, edge_index))
+        # Node embedding
+        x = self.node_embed(x)
+
+        # Flatten nodes
+        x = x.reshape(B*T*V, -1)
+
+        # GNN with residuals
+        h = F.relu(self.gnn1(x, edge_index))
+        x = self.ln1(h + x)
+
+        h = F.relu(self.gnn2(x, edge_index))
+        x = self.ln2(h + x)
 
         # Reshape back
-        x = x.reshape(B, T, V, self.hidden)
+        x = x.reshape(B, T, V, -1)
 
-        # Temporal
-        x = x.mean(dim=2)       # average over joints → (B, T, H)
-        x = x.permute(0, 2, 1)  # → (B, H, T)
+        # Temporal pooling
+        x = x.mean(dim=2)  # average joints → (B, T, H)
 
-        x = self.temporal_conv(x)  # (B, H, T)
-        x = x.mean(dim=2)          # temporal pooling
+        # Temporal attention
+        x = x.permute(1,0,2)  # T,B,H
+        x, _ = self.temporal_attn(x, x, x)
+        x = x.mean(dim=0)  # B,H
 
-        return self.fc(x)
+        emb = x  # after temporal pooling (B, H)
+        logits = self.fc(emb)
+        return logits, emb
+    
+    def loss(self, preds, y):
+        return F.cross_entropy(preds, y, label_smoothing=0.1)
 
     def training_step(self, batch, batch_idx):
         x, y = batch
-        preds = self(x)
-        loss = F.cross_entropy(preds, y)
-        acc = self.train_acc(preds, y)
+        logits, emb = self(x)
 
-        self.confmat.update(preds, y)
+        ce_loss = F.cross_entropy(logits, y, label_smoothing=0.1)
+        center_loss = self.center_loss_fn(emb, y)
 
-        self.log("train_loss", loss, prog_bar=True)
-        self.log("train_acc", acc, prog_bar=True)
+        loss = ce_loss + center_loss
+
+        self.log("train_loss", loss)
+        self.log("train_ce", ce_loss)
+        self.log("train_center_loss", center_loss)
+
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
-        preds = self(x)
-        loss = F.cross_entropy(preds, y)
+        preds, _ = self(x)
+        loss = self.loss(preds, y)
         acc = self.val_acc(preds, y)
 
-        self.log("val_loss", loss, prog_bar=True)
-        self.log("val_acc", acc, prog_bar=True)
+        self.log("val_loss", loss, prog_bar=True, sync_dist=True)
+        self.log("val_acc", acc, prog_bar=True, sync_dist=True)
 
     def test_step(self, batch, batch_idx):
         x, y = batch
-        preds = self(x)
-        loss = F.cross_entropy(preds, y)
+        preds, _ = self(x)
         acc = self.val_acc(preds, y)
 
-        self.log("test_loss", loss, prog_bar=True)
         self.log("test_acc", acc, prog_bar=True)
     
-    def on_fit_end(self):
+    def on_test_epoch_end(self):
         # Compute confusion matrix and add per-class accuracies
         confmat = self.confmat.compute().detach().cpu()
         per_class_acc = confmat.diag() / confmat.sum(dim=1).clamp(min=1)
@@ -156,4 +202,6 @@ class GNN(pl.LightningModule):
         plt.close(fig)
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams.lr)
+
+        return optimizer
