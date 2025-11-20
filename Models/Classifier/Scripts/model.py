@@ -1,5 +1,3 @@
-# models/tcn_fencenet.py
-import math
 import wandb
 import matplotlib.pyplot as plt
 import torch
@@ -7,9 +5,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
 
-from typing import List, Optional
+from typing import List
 from torchmetrics import Accuracy, ConfusionMatrix
-
 
 class TemporalBlock(nn.Module):
     """Single residual temporal block: Conv1d -> ReLU -> Dropout -> Conv1d -> ReLU -> Dropout + residual"""
@@ -70,7 +67,6 @@ class TemporalConvNet(nn.Module):
         # x: (B, C, T)
         return self.network(x)  # (B, C_last, T)
 
-
 class TCN(pl.LightningModule):
     """
     TCN baseline classifier (FenceNet-style).
@@ -84,20 +80,17 @@ class TCN(pl.LightningModule):
         num_joints: int = 17,
         num_frames: int = 8,
         coord_dim: int = 2,
-        tcn_channels: Optional[List[int]] = None,  # channels for each temporal level
+        tcn_channels: List[int] = [128, 128, 256],  # channels for each temporal level
         kernel_size: int = 3,
         dropout: float = 0.1,
         fc_hidden: int = 768,
         lr: float = 3e-4,
         weight_decay: float = 1e-4,
         use_onecycle: bool = True,
-        max_epochs: int = 50,
+        max_epochs: int = 25,
     ):
         super().__init__()
         self.save_hyperparameters()
-
-        if tcn_channels is None:
-            tcn_channels = [128, 128, 256]  # default 3-level TCN
 
         self.num_classes = num_classes
         self.V = num_joints
@@ -189,7 +182,7 @@ class TCN(pl.LightningModule):
         x, y = batch
 
         logits, emb = self(x)
-        loss = F.cross_entropy(logits, y)
+        loss = F.cross_entropy(logits, y, label_smoothing=0.1)
         preds = torch.argmax(logits, dim=1)
 
         self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
@@ -201,7 +194,7 @@ class TCN(pl.LightningModule):
         x, y = batch
 
         logits, emb = self(x)
-        loss = F.cross_entropy(logits, y)
+        loss = F.cross_entropy(logits, y, label_smoothing=0.1)
         preds = torch.argmax(logits, dim=1)
 
         self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
@@ -213,7 +206,7 @@ class TCN(pl.LightningModule):
         x, y = batch
 
         logits, emb = self(x)
-        loss = F.cross_entropy(logits, y)
+        loss = F.cross_entropy(logits, y, label_smoothing=0.1)
         preds = torch.argmax(logits, dim=1)
 
         self.log("test_loss", loss, prog_bar=True)

@@ -15,8 +15,8 @@ PATH_CHECKPOINTS    = "../Model/Checkpoints"
 PROJECT_NAME        = "SaberPredict"
 
 BATCH_SIZE          = 32
-MAX_EPOCHS          = 75
-TUNED_LR            = 0.00052022644346174131
+MAX_EPOCHS          = 25
+TUNED_LR            = 0.0009549925860214359
 
 def main():
     parser = argparse.ArgumentParser()
