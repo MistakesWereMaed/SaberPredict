@@ -1,159 +1,87 @@
-# Automated Refereeing for Olympic Saber
+# Fencing Action Classification Dataset and Model Development
 
-## Project Overview
+## 1. Introduction
 
-Modern Olympic saber fencing requires referees to make **split-second decisions** about which fencer has right-of-way when simultaneous touches occur. While electronic scoring systems reliably detect valid touches, they do **not capture the sequence of actions** (attack, parry, riposte, counter-attack) that determine priority. This project aims to explore whether a **computer vision system** can reliably detect fencer movements, classify actions, and assist referees in making right-of-way decisions.
+This project investigates the development of a structured dataset and baseline action classification model for Modern Olympic Sabre fencing. The goal is to produce a reproducible pipeline for acquiring bout footage, annotating fencing actions, extracting pose-based representations, and training a classification model inspired by the *FenceNet* framework (Zhou et al., 2022). While comprehensive referee automation requires additional modules such as object tracking and ruleset reasoning, this work focuses strictly on dataset creation and core action recognition.
 
-### Goals
+## 2. Problem Statement
 
-* Detect fencer movements and blade trajectories.
-* Recognize offensive and defensive fencing actions.
-* Apply saber priority rules to produce preliminary point calls.
+Unlike team sports with well‑established computer vision benchmarks, fencing lacks high‑quality, publicly available datasets containing labeled tactical actions. Sabre in particular presents unique challenges: extremely fast blade motions, complex temporal dependencies, and subjective tactical interpretations governed by right‑of‑way rules. This project aims to address the dataset gap by constructing a curated, labeled collection of sabre exchanges and establishing a baseline model for pose‑based action classification.
 
----
+## 3. Methodology
 
-## Background
+The project methodology consists of four major components: video acquisition, annotation, data preprocessing, and pose‑based classification.
 
-Existing sports analytics technologies demonstrate the feasibility of automated decision support:
+### 3.1 Video Collection
 
-* **Hawk-Eye** in tennis and soccer uses multi-camera setups for accurate event detection.
-* **Pose estimation** (OpenPose, MediaPipe) has been applied to track body movements in combat sports.
-* **Temporal models** (CNNs, Transformers) have been used for action recognition in datasets like Kinetics-400.
-* **Blade tracking** parallels object tracking in fast-moving sports equipment (e.g., baseball, cricket).
+High‑quality sabre competition footage is gathered from publicly available broadcasts, including international competitions, collegiate meets, and training sessions with stable camera angles. To ensure utility for computer vision analysis, selected videos prioritize:
 
-Although no prior work has directly applied these techniques to fencing, combining pose estimation, object tracking, and temporal action classification forms a strong foundation for this project.
+* Consistent lateral viewpoint
+* Minimal occlusions
+* Sufficient resolution for reliable pose estimation
+* Clear visibility of both fencers throughout actions
 
----
+All footage is segmented into short clips representing individual exchanges or tactical sequences.
 
-## Hypothesis & Expected Outcome
+### 3.2 Action Annotation
 
-Fencing exchanges can be **decomposed into structured temporal sequences** of atomic actions using pose and blade trajectory features. Modeling these sequences should allow automation of right-of-way reasoning to a degree comparable to human referees.
+Annotations are performed using the CVAT.ai platform. Each clip is labeled according to a standardized, domain‑appropriate action taxonomy that captures essential offensive and defensive events without over‑specifying technical variations.
 
-**Expected Outcome:**
-A pipeline that takes match footage as input and outputs:
+### 3.3 Data Preprocessing and Pose Extraction
 
-1. Structured action sequences.
-2. Preliminary right-of-way decisions (point assignment).
+Each annotated clip undergoes a preprocessing pipeline consisting of:
 
----
+1. **Frame extraction** at a fixed rate suitable for pose estimation.
+2. **Human pose estimation** using YOLO‑based keypoint detection models to obtain 2D joint coordinates for both fencers.
+3. **Keypoint cleaning** to remove bad detections
+4. **Linear interpolation** to fill in missing frames
+5. **Data augmentation** to expand the dataset and introduce more variance
 
-## Project Approach
+The final dataset consists of synchronized pairs of:
 
-The project follows a **three-phase pipeline**:
+* Raw video clips
+* Action labels with temporal boundaries
+* Pose keypoints for each fencer
 
-1. **Detection & Tracking**
+This representation enables training of temporal neural networks without dependence on raw pixel data.
 
-   * Pose estimation (MediaPipe/OpenPose) for skeleton joints.
-   * YOLO-based detection for blade tips and guards.
+### 3.4 Classification Model
 
-2. **Action Recognition**
+Action classification is performed using a pose‑based deep learning model inspired by the *FenceNet* architecture. The classifier operates on sequences of 2D joint coordinates and is designed to capture both spatial body configurations and temporal evolution of fencing actions. Core model components include:
 
-   * Temporal classifiers (1D CNNs, Transformers, or GNNs on skeletons) to identify actions such as attack, parry, riposte, etc.
-   * Each action is annotated with a **success flag** indicating whether it landed.
+* Spatial attention mechanisms to emphasize action‑relevant joints
+* A temporal convolutional module for sequence modeling
+* An output classification layer matching the defined action taxonomy
 
-3. **Right-of-Way Reasoning**
+The objective is to establish a strong baseline for sabre action recognition using structured pose information.
 
-   * Rule-based engine implementing FIE priority rules on recognized action sequences.
-   * Future extension: Learnable sequence model for automated point calls.
+## 4. Experimental Setup
 
----
+Experiments evaluate the classifier using cross‑validation over annotated clips. Metrics include:
 
-## Label Set
+* Classification accuracy
+* Per‑class precision, recall, and F1‑score
+* Confusion matrices to analyze common misclassifications
 
-### Offensive Actions
+Evaluation focuses on determining which action categories are most reliably identified and how pose‑based representations perform under conditions of rapid movement and potential occlusion.
 
-* Preparation
-* Attack (Simple)
-* Attack (Compound)
-* Beat Attack
-* Remise
+## 5. Expected Outcomes
 
-### Defensive Actions
+This project aims to produce:
 
-* Parry
-* Riposte
-* Stop-cut
-* Distance Pull
-* Point in Line
+1. A reproducible methodology for collecting and annotating high‑quality sabre footage.
+2. A structured, pose‑based dataset suitable for downstream fencing research.
+3. A baseline action classifier capable of distinguishing core sabre actions.
+4. Insights into the strengths and limitations of pose‑only models for high‑speed combat sports.
 
-### Other
+## 6. References
 
-* None - used to markspaces between actions (such as recovery after an attack)
+Athow, R., McBride, N., & Methven, A. (2016). Using computer vision to assist the scoring of modern fencing. Proceedings of the Midlands Information and Computer Science Conference (MICS), 23–29.
 
-**Attribute:** `success = true/false` indicates whether offensive actions landed or defensive actions were successful at avoiding the hit.
+Honda, T., Li, S., Nakaoka, S., & Kuriyama, S. (2020). Motion prediction in competitive fencing. In British Machine Vision Conference (BMVC). BMVA Press.
 
----
+Malawski, M., & Kwolek, B. (2017). Action segmentation and recognition of fencing footwork. In Telecommunications and Signal Processing (TSP), 2017 40th International Conference on (pp. 710–713). IEEE.
 
-## Dataset Setup
+Malawski, M., & Kwolek, B. (2018). Segmentation and classification of fencing footwork. International Journal of Applied Mathematics and Computer Science, 28(1), 149–164. https://doi.org/10.2478/amcs-2018-0012
 
-### Quick Start
-
-1. **Install dependencies**
-
-```bash
-sudo apt-get update
-sudo apt-get install ffmpeg
-pip install -r requirements.txt
-```
-
-2. **Download raw bout videos**
-
-```bash
-python downloader.py
-```
-
-3. **Install LosslessCut**
-
-* Download from [LosslessCut](https://losslesscut.en.softonic.com) and extract/install.
-
-4. **Trim and label exchanges**
-
-* Open each raw bout video in LosslessCut.
-* Split into segments:
-
-  * Start 1 frame before fencers move.
-  * End 1 frame after scorebox lights up (wait for second light if needed).
-* Label segments as `Exchange_Fencer` (e.g., `1_Left`, `2_Right`).
-* Export timestamps (CSV) to the `timestamps/` folder.
-
-5. **Split raw videos into clips**
-
-```bash
-python splitter.py
-```
-
----
-
-## Project Workflow
-
-1. Extract frames from video clips.
-2. Run **pose and blade detection** → structured trajectory data.
-3. Annotate/correct actions and success flags in CVAT.
-4. Train models: detection → action recognition → right-of-way reasoning.
-5. Evaluate using ground-truth referee calls.
-
----
-
-## Experimental Setup
-
-* **Datasets:** Practice or competition footage, annotated with actions and outcomes.
-* **Evaluation Metrics:**
-
-  * **Tracking Accuracy:** PCK metric, pixel error for blade tip.
-  * **Action Recognition:** Precision, Recall, F1-score per action.
-  * **Right-of-Way Decisions:** Agreement % with referee ground truth.
-
----
-
-## Implementation Plan
-
-1. Gather fencing footage and research vision models.
-2. Process footage through models to extract skeletons and blade tips.
-3. Manually adjust annotations in CVAT and label fencing actions + outcomes.
-4. Build data pipeline and train action recognition models.
-5. Implement FIE ruleset for point assignment and integrate into evaluation pipeline.
-
----
-
-
-
+Zhu, Y., Zhou, Z., & Wu, F. (2022). FenceNet: Fine-grained footwork recognition in fencing. IEEE Transactions on Multimedia, 24, 2561–2572.
