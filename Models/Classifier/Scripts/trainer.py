@@ -9,8 +9,8 @@ from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 PATH_DATA           = "../../../Dataset/Data/Processed/data.csv"
-PATH_LOGS           = "../Models/Logs"
-PATH_CHECKPOINTS    = "../Models/Checkpoints"
+PATH_LOGS           = "../Logs"
+PATH_CHECKPOINTS    = "../Checkpoints"
 
 PROJECT_NAME        = "SaberPredict"
 

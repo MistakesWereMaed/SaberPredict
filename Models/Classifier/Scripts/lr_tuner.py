@@ -7,10 +7,7 @@ from Models import TCN, GNN, MLP
 from pytorch_lightning.tuner import Tuner
 
 PATH_DATA           = "../../../Dataset/Data/Processed/data.csv"
-PATH_LOGS           = "../Models/Logs"
-
 BATCH_SIZE          = 32
-MAX_EPOCHS          = 25
 
 def main():
     parser = argparse.ArgumentParser()
