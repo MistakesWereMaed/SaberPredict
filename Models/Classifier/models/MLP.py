@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 
-import Models._model as m
+import models._model as m
 
 from torchmetrics import Accuracy, ConfusionMatrix
 

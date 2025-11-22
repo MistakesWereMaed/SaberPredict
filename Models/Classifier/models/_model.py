@@ -51,11 +51,11 @@ def step(self, batch, batch_idx, mode: str):
 
     # Logging
     prefix = f"{mode}_"
-    self.log(prefix + "loss", loss, prog_bar=True, on_step=True, on_epoch=False)
+    self.log(prefix + "loss", loss, prog_bar=True, on_step=False, on_epoch=True)
 
     if mode in metric_map:
         acc = metric_map[mode](preds, y)
-        self.log(prefix + "acc", acc, prog_bar=True, on_step=True, on_epoch=False)
+        self.log(prefix + "acc", acc, prog_bar=True, on_step=False, on_epoch=True)
 
     # Confusion matrix only during test
     if mode == "test" and hasattr(self, "confmat"):

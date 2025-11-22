@@ -2,11 +2,11 @@ import pytorch_lightning as pl
 import argparse
 
 from dataloader import SkeletonDataModule
-from Models import TCN, GNN, MLP
+from models import TCN, GNN, MLP
 
 from pytorch_lightning.tuner import Tuner
 
-PATH_DATA           = "../../../Dataset/Data/Processed/data.csv"
+PATH_DATA           = "../../Dataset/Data/Processed/data.csv"
 BATCH_SIZE          = 32
 
 def main():
@@ -38,7 +38,7 @@ def main():
     )
 
     trainer = pl.Trainer(
-        max_epochs=MAX_EPOCHS,
+        max_epochs=model.hparams.max_epochs,
         accelerator="gpu",
         devices=1,
         logger=False

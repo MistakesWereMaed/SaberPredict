@@ -3,12 +3,12 @@ import argparse
 import wandb
 
 from dataloader import SkeletonDataModule
-from Models import TCN, GNN, MLP
+from models import TCN, GNN, MLP
 
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 
-PATH_DATA           = "../../../Dataset/Data/Processed/data.csv"
+PATH_DATA           = "../../Dataset/Data/Processed/data.csv"
 PATH_LOGS           = "../Logs"
 PATH_CHECKPOINTS    = "../Checkpoints"
 
@@ -35,8 +35,7 @@ def main():
     wandb_logger = WandbLogger(
         project=PROJECT_NAME,
         name=model_name,
-        save_dir=PATH_LOGS,
-        log_model=True,
+        save_dir=PATH_LOGS
     )
 
     data = SkeletonDataModule(
