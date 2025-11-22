@@ -4,17 +4,17 @@
 set -euo pipefail
 
 # 1. Clear the Logs directory (only its contents)
-if [ -d "../Model/Logs" ]; then
+if [ -d "../Logs" ]; then
   echo "Cleaning contents of Logs/ directory..."
-  rm -rf ../Model/Logs
+  rm -rf ../Logs
 else
   echo "Warning: Logs directory does not exist."
 fi
 
 # 2. Clear the Checkpoints directory (only its contents)
-if [ -d "../Model/Checkpoints" ]; then
+if [ -d "../Checkpoints" ]; then
   echo "Cleaning contents of Checkpoints/ directory..."
-  rm -rf ../Model/Checkpoints
+  rm -rf ../Checkpoints
 else
   echo "Warning: Checkpoints directory does not exist."
 fi

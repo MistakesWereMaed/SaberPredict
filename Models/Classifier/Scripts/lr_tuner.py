@@ -1,15 +1,32 @@
 import pytorch_lightning as pl
-from dataloader import SkeletonDataModule
-from model import TCN
+import argparse
 
-from pytorch_lightning.tuner.tuning import Tuner
+from dataloader import SkeletonDataModule
+from Models import TCN, GNN, MLP
+
+from pytorch_lightning.tuner import Tuner
 
 PATH_DATA           = "../../../Dataset/Data/Processed/data.csv"
+PATH_LOGS           = "../Models/Logs"
 
 BATCH_SIZE          = 32
-MAX_EPOCHS          = 100
+MAX_EPOCHS          = 25
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", type=str, default="TCN")
+    args = parser.parse_args()
+
+    model_name = args.model
+
+    match(model_name):
+        case "TCN":
+            model_class = TCN.model
+        case "GNN":
+            model_class = GNN.model
+        case "MLP":
+            model_class = MLP.model
+
     data = SkeletonDataModule(
         csv_path=PATH_DATA,
         batch_size=BATCH_SIZE,
@@ -17,7 +34,7 @@ def main():
     )
     data.setup()
 
-    model = TCN(
+    model = model_class(
         num_classes=data.num_classes,
         label_dict=data.label_dict,
         lr=5e-4
@@ -27,8 +44,7 @@ def main():
         max_epochs=MAX_EPOCHS,
         accelerator="gpu",
         devices=1,
-        logger=False,
-        callbacks=None
+        logger=False
     )
 
     tuner = Tuner(trainer)
