@@ -102,9 +102,7 @@ def draw_plots(self):
     # Compute confusion matrix
     confmat = self.confmat.compute().detach().cpu()
 
-    # ------------------------------------------
     # 1. Per-class accuracy plot
-    # ------------------------------------------
     per_class_acc = confmat.diag() / confmat.sum(axis=1).clip(min=1)
 
     num_classes = confmat.shape[0]
@@ -129,9 +127,7 @@ def draw_plots(self):
     self.logger.experiment.log({"per_class_accuracy_plot": wandb.Image(fig_acc)})
     plt.close(fig_acc)
 
-    # ------------------------------------------
     # 2. Confusion Matrix Heatmap
-    # ------------------------------------------
     fig_cm, ax_cm = plt.subplots(figsize=(12, 10))
     im = ax_cm.imshow(confmat, cmap="Blues")
 

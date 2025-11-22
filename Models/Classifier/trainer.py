@@ -21,7 +21,7 @@ MAX_EPOCHS          = 75
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="TCN")
-    parser.add_argument("--tune", type=bool, default=False)
+    parser.add_argument("--tune", action="store_true", default=False)
     args = parser.parse_args()
 
     model_name = args.model
@@ -77,7 +77,7 @@ def main():
         model.hparams.lr = lr_finder.suggestion()
 
     trainer.fit(model, data)
-    trainer.test(model, data)
+    trainer.test(model, data, ckpt_path="best")
 
     wandb.finish()
 
