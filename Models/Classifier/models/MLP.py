@@ -16,8 +16,8 @@ class model(pl.LightningModule):
         coord_dim: int = 2,
         dropout: float = 0.1,
         hidden_dim: int = 768,
-        mlp_layers: int = 3,
-        lr: float = 3e-4,
+        mlp_layers: int = 5,
+        lr: float = 5e-4,
         weight_decay: float = 1e-4,
         use_onecycle: bool = True,
         max_epochs: int = 25,
@@ -31,13 +31,17 @@ class model(pl.LightningModule):
         self.coord_dim = coord_dim
 
         layers = []
+
+        # Coordinate projection
         layers.append(nn.Linear(coord_dim * num_joints * num_frames, hidden_dim))
         layers.append(nn.ReLU())
         layers.append(nn.Dropout(dropout))
 
+        # MLP
         for _ in range(mlp_layers - 1):
             layers.append(nn.Linear(hidden_dim, hidden_dim))
             layers.append(nn.ReLU())
+            layers.append(nn.LayerNorm(hidden_dim))
             layers.append(nn.Dropout(dropout))
 
         self.mlp = nn.Sequential(*layers)
@@ -79,9 +83,7 @@ class model(pl.LightningModule):
 
         return logits, emb
 
-    # -------------------------
     # training / validation steps
-    # -------------------------
     def training_step(self, batch, batch_idx):
         return m.step(self, batch, batch_idx, "train")
 

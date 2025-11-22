@@ -50,12 +50,11 @@ class model(pl.LightningModule):
         fc_hidden: int = 768,
         embed_dim=768,
         gnn_hidden=768,
-        attn_heads=64,
         center_lambda=0.1,
-        lr: float = 3e-4,
+        lr: float = 5e-4,
         weight_decay: float = 1e-4,
         use_onecycle: bool = True,
-        max_epochs: int = 25,
+        max_epochs: int = 75,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -98,10 +97,7 @@ class model(pl.LightningModule):
         self.ln1 = nn.LayerNorm(gnn_hidden)
         self.ln2 = nn.LayerNorm(gnn_hidden)
 
-        # 4. Temporal attention
-        self.temporal_attn = nn.MultiheadAttention(gnn_hidden, attn_heads)
-
-        # 5. Classifier
+        # 4. Classifier
         self.fc = nn.Sequential(
             nn.Linear(gnn_hidden, fc_hidden),
             nn.ReLU(),
@@ -138,6 +134,7 @@ class model(pl.LightningModule):
         repeats = torch.arange(B*T, device=x.device).repeat_interleave(E) * V
         edge_index = self.edge_index_base.repeat(1, B*T) + repeats
 
+        # Normalize input
         x = m.normalize_input(x)
 
         # Node embedding
@@ -157,17 +154,8 @@ class model(pl.LightningModule):
         h = self.dropout(h)
         x = self.ln2(h + x)
 
-        # Reshape
-        x = x.reshape(B, T, V, -1)
-
-        # Temporal pooling across joints
-        x = x.mean(dim=2) # (B, T, H)
-
-        # Multihead Attention
-        x = x.permute(1, 0, 2) # (T, B, H)
-        x, _ = self.temporal_attn(x, x, x)
-        x = self.dropout(x)
-        x = x.mean(dim=0) # (B, H)
+        # Reshape back to sequences
+        x = x.reshape(B, T, V, -1).mean(dim=(1, 2))
 
         # Final embedding + classifier
         emb = x
@@ -175,9 +163,7 @@ class model(pl.LightningModule):
 
         return logits, emb
 
-    # -------------------------
     # training / validation steps
-    # -------------------------
     def training_step(self, batch, batch_idx):
         return m.step(self, batch, batch_idx, "train")
 

@@ -7,6 +7,7 @@ from models import TCN, GNN, MLP
 
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.tuner import Tuner
 
 PATH_DATA           = "../../Dataset/Data/Processed/data.csv"
 PATH_LOGS           = "../Logs"
@@ -15,11 +16,12 @@ PATH_CHECKPOINTS    = "../Checkpoints"
 PROJECT_NAME        = "SaberPredict"
 
 BATCH_SIZE          = 32
-TUNED_LR            = 0.00056595869074375607
+MAX_EPOCHS          = 75
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="TCN")
+    parser.add_argument("--tune", type=bool, default=False)
     args = parser.parse_args()
 
     model_name = args.model
@@ -48,7 +50,7 @@ def main():
     model = model_class(
         num_classes=data.num_classes,
         label_dict=data.label_dict,
-        lr=TUNED_LR
+        max_epochs=MAX_EPOCHS
     )
 
     checkpoint_callback = ModelCheckpoint(
@@ -67,6 +69,12 @@ def main():
         log_every_n_steps=10,
         callbacks=[checkpoint_callback]
     )
+
+    if args.tune:
+        tuner = Tuner(trainer)
+
+        lr_finder = tuner.lr_find(model, datamodule=data, min_lr=1e-4, max_lr=1e-2)
+        model.hparams.lr = lr_finder.suggestion()
 
     trainer.fit(model, data)
     trainer.test(model, data)

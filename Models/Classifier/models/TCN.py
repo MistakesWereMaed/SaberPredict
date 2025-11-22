@@ -44,7 +44,6 @@ class TemporalBlock(nn.Module):
         res = x if self.downsample is None else self.downsample(x)
         return self.relu(out + res)
 
-
 class TemporalConvNet(nn.Module):
     """Stack of TemporalBlocks with increasing dilation"""
     def __init__(self, in_channels: int, channels: List[int], kernel_size: int = 3, dropout: float = 0.1):
@@ -83,10 +82,10 @@ class model(pl.LightningModule):
         kernel_size: int = 3,
         dropout: float = 0.1,
         fc_hidden: int = 768,
-        lr: float = 3e-4,
+        lr: float = 5e-4,
         weight_decay: float = 1e-4,
         use_onecycle: bool = True,
-        max_epochs: int = 25,
+        max_epochs: int = 50,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -148,9 +147,7 @@ class model(pl.LightningModule):
         logits = self.classifier(emb)  # (B, num_classes)
         return logits, emb
 
-    # -------------------------
     # training / validation steps
-    # -------------------------
     def training_step(self, batch, batch_idx):
         return m.step(self, batch, batch_idx, "train")
 

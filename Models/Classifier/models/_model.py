@@ -1,8 +1,8 @@
 import wandb
-import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
 
 def init_weights(m):
     if isinstance(m, nn.Linear):
@@ -28,9 +28,6 @@ def normalize_input(x):
     eps = 1e-6
     return k / (max_d + eps)
 
-# -------------------------
-# training / validation steps
-# -------------------------
 def step(self, batch, batch_idx, mode: str):
     """
     Shared logic for train/val/test steps.
@@ -69,6 +66,38 @@ def step(self, batch, batch_idx, mode: str):
         "logits": logits,
     }
 
+def configure_optimizers(self):
+    optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+    if self.use_onecycle:
+        # OneCycleLR requires total_steps - use estimated from trainer if available
+        scheduler = None
+        try:
+            total_steps = self.trainer.estimated_stepping_batches
+            scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                optimizer,
+                max_lr=self.lr,
+                total_steps=total_steps,
+                pct_start=0.1,
+                anneal_strategy="cos",
+                div_factor=25.0,
+                final_div_factor=1e4,
+            )
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "interval": "step",
+                    "frequency": 1
+                }
+            }
+        except Exception:
+            # Trainer not attached yet -> return optimizer only and let the caller handle scheduling
+            return optimizer
+    else:
+        # simple lr scheduler by epoch
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
+        return {"optimizer": optimizer, "lr_scheduler": {"scheduler": scheduler, "monitor": "val_loss"}}
+    
 def draw_plots(self):
     # Compute confusion matrix
     confmat = self.confmat.compute().detach().cpu()
@@ -130,36 +159,3 @@ def draw_plots(self):
     plt.tight_layout()
     self.logger.experiment.log({"confusion_matrix": wandb.Image(fig_cm)})
     plt.close(fig_cm)
-
-
-def configure_optimizers(self):
-    optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-    if self.use_onecycle:
-        # OneCycleLR requires total_steps - use estimated from trainer if available
-        scheduler = None
-        try:
-            total_steps = self.trainer.estimated_stepping_batches
-            scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                optimizer,
-                max_lr=self.lr,
-                total_steps=total_steps,
-                pct_start=0.1,
-                anneal_strategy="cos",
-                div_factor=25.0,
-                final_div_factor=1e4,
-            )
-            return {
-                "optimizer": optimizer,
-                "lr_scheduler": {
-                    "scheduler": scheduler,
-                    "interval": "step",
-                    "frequency": 1
-                }
-            }
-        except Exception:
-            # Trainer not attached yet -> return optimizer only and let the caller handle scheduling
-            return optimizer
-    else:
-        # simple lr scheduler by epoch
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
-        return {"optimizer": optimizer, "lr_scheduler": {"scheduler": scheduler, "monitor": "val_loss"}}
