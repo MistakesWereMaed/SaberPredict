@@ -15,8 +15,9 @@ from TCN import model as TCN
 # ----------------------------
 
 VIDEO_PATH = "../Dataset/Videos/Clips/1/11_Left.mp4"
-OUTPUT_PATH = "test_out.csv"
 CHECKPOINT_PATH = "../Models/Checkpoints/TCN-v2.ckpt"
+MAP_PATH = "label_map.csv"
+OUTPUT_PATH = "test_out.csv"
 
 ROI = (0, 600, 1900, 850)
 IMG_SIZE = 1280
@@ -25,7 +26,6 @@ PAD = 20
 WINDOW_SIZE = 8
 NUM_JOINTS = 17
 
-MAX_FRAMES = None   # Limit frames for quick tests
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # ----------------------------
@@ -81,6 +81,9 @@ def main():
     classifier.eval()
     classifier.to(DEVICE)
 
+    label_map = pd.read_csv(MAP_PATH)
+    id_to_label = {row["id"]: row["label"] for _, row in label_map.iterrows()}
+
     # Buffers
     left_buffer = SkeletonWindowBuffer()
     right_buffer = SkeletonWindowBuffer()
@@ -108,27 +111,29 @@ def main():
         left_kpts = output["LEFT"]["keypoints"]
         left_conf = output["LEFT"]["confidence"]
         left_box = output["LEFT"]["box"]
-        left_buffer.add_frame(left_kpts)
         left_label = None
+
+        left_buffer.add_frame(left_kpts)
         if left_buffer.is_ready():
             window = left_buffer.get_window().to(DEVICE)
             with torch.no_grad():
                 logits = classifier(window)[0]
                 pred_id = torch.argmax(logits, dim=1).item()
-                left_label = pred_id
+                left_label = id_to_label[pred_id]
 
         # Process RIGHT
         right_kpts = output["RIGHT"]["keypoints"]
         right_conf = output["RIGHT"]["confidence"]
         right_box = output["RIGHT"]["box"]
-        right_buffer.add_frame(right_kpts)
         right_label = None
+        
+        right_buffer.add_frame(right_kpts)
         if right_buffer.is_ready():
             window = right_buffer.get_window().to(DEVICE)
             with torch.no_grad():
                 logits = classifier(window)[0]
                 pred_id = torch.argmax(logits, dim=1).item()
-                right_label = pred_id
+                right_label = id_to_label[pred_id]
 
         # Record results
         for fencer, kpts, conf, box, label in zip(
@@ -141,16 +146,14 @@ def main():
             records.append({
                 "frame": frame_idx,
                 "fencer": fencer,
-                "keypoints": kpts.tolist() if kpts is not None else None,
-                "confidence": float(conf) if conf is not None else None,
-                "box": box if box is not None else None,
                 "pred_label": label,
-                "inference_time_s": t1 - t0
+                "inference_time_s": t1 - t0,
+                "box": box if box is not None else None,
+                "keypoints": kpts.tolist() if kpts is not None else None,
+                "confidence": float(conf) if conf is not None else None
             })
 
         frame_idx += 1
-        if MAX_FRAMES is not None and frame_idx >= MAX_FRAMES:
-            break
 
     cap.release()
 
