@@ -2,8 +2,8 @@ import numpy as np
 
 from ultralytics import YOLO
 
-PATH_PERSON_MODEL = "./Checkpoints/yolo11x.pt"
-PATH_POSE_MODEL   = "./Checkpoints/yolo11x-pose.pt"
+PATH_PERSON_MODEL = "./Models/Checkpoints/yolo11x.pt"
+PATH_POSE_MODEL   = "./Models/Checkpoints/yolo11x-pose.pt"
 
 ROI             = (0, 600, 1900, 850)
 PAD             = 20

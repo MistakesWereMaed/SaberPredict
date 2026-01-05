@@ -5,11 +5,11 @@ import pandas as pd
 
 from Models import pose_estimator as pe
 
-PATH_CLIPS            = "../../Dataset/Videos/Clips/"
-PATH_ACTIONS_FILTERED = "../../Dataset/Data/tmp/actions_filtered.csv"
+PATH_CLIPS            = "../Dataset/Videos/Clips/"
+PATH_ACTIONS_FILTERED = "../Dataset/Data/tmp/actions_filtered.csv"
 
-PATH_KEYPOINTS        = "../../Dataset/Data/Unprocessed/keypoints.csv"
-PATH_METRICS          = "../../Dataset/Data/Unprocessed/metrics.csv"
+PATH_KEYPOINTS        = "../Dataset/Data/Unprocessed/keypoints.csv"
+PATH_METRICS          = "../Dataset/Data/Unprocessed/metrics.csv"
 
 # ------------------------------------------------------------
 # Frame range utilities
