@@ -5,9 +5,9 @@ import pandas as pd
 import torch
 
 from collections import deque
-from ultralytics import YOLO
 
-from pose_estimator import OnlinePoseEstimator
+
+from pose_estimator import PoseEstimator
 from TCN import model as TCN
 
 # ----------------------------
@@ -33,7 +33,8 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # ----------------------------
 
 class SkeletonWindowBuffer:
-    def __init__(self, window_size=8, num_joints=17):
+    def __init__(self, fencer, window_size=8, num_joints=17):
+        self.fencer = fencer
         self.window_size = window_size
         self.num_joints = num_joints
         self.buffer = deque(maxlen=window_size)
@@ -63,30 +64,35 @@ class SkeletonWindowBuffer:
 # MAIN INFERENCE LOOP
 # ----------------------------
 
+def process_pose(buffer, classifier, id_to_label, output):
+    fencer = buffer.fencer
+    kpts = output[fencer]["keypoints"]
+    conf = output[fencer]["confidence"]
+    box = output[fencer]["box"]
+    label = "NO_ACTION"
+    
+    buffer.add_frame(kpts)
+    if buffer.is_ready():
+        window = buffer.get_window().to(DEVICE)
+        with torch.no_grad():
+            logits = classifier(window)[0]
+            pred_id = torch.argmax(logits, dim=1).item()
+            label = id_to_label[pred_id]
+
+    return kpts, conf, box, label
+
 def main():
-    # Load models
-    person_model = YOLO("../Models/YOLO/yolo11x.pt", task="detect")
-    pose_model   = YOLO("../Models/YOLO/yolo11x-pose.pt", task="pose")
-
-    pose_estimator = OnlinePoseEstimator(
-        person_model=person_model,
-        pose_model=pose_model,
-        roi=ROI,
-        pad=PAD,
-        imgsz=IMG_SIZE
-    )
-
-    # Load classifier
-    classifier = TCN.load_from_checkpoint(CHECKPOINT_PATH)
-    classifier.eval()
-    classifier.to(DEVICE)
-
     label_map = pd.read_csv(MAP_PATH)
     id_to_label = {row["id"]: row["label"] for _, row in label_map.iterrows()}
 
+    # Load models
+    pose_estimator = PoseEstimator(roi=ROI, pad=PAD, imgsz=IMG_SIZE)
+    classifier = TCN.load_from_checkpoint(CHECKPOINT_PATH, map_location=DEVICE)
+    classifier.eval()
+
     # Buffers
-    left_buffer = SkeletonWindowBuffer()
-    right_buffer = SkeletonWindowBuffer()
+    left_buffer = SkeletonWindowBuffer("LEFT")
+    right_buffer = SkeletonWindowBuffer("RIGHT")
 
     # Video capture
     cap = cv2.VideoCapture(VIDEO_PATH)
@@ -103,37 +109,14 @@ def main():
             break
 
         t0 = time.perf_counter()
+
+        # Process frame
         output = pose_estimator.process_frame(frame, frame_idx)
+        left_kpts, left_conf, left_box, left_label     = process_pose(left_buffer, classifier, id_to_label, output)
+        right_kpts, right_conf, right_box, right_label = process_pose(right_buffer, classifier, id_to_label, output)
+
         t1 = time.perf_counter()
         timings.append(t1 - t0)
-
-        # Process LEFT
-        left_kpts = output["LEFT"]["keypoints"]
-        left_conf = output["LEFT"]["confidence"]
-        left_box = output["LEFT"]["box"]
-        left_label = None
-
-        left_buffer.add_frame(left_kpts)
-        if left_buffer.is_ready():
-            window = left_buffer.get_window().to(DEVICE)
-            with torch.no_grad():
-                logits = classifier(window)[0]
-                pred_id = torch.argmax(logits, dim=1).item()
-                left_label = id_to_label[pred_id]
-
-        # Process RIGHT
-        right_kpts = output["RIGHT"]["keypoints"]
-        right_conf = output["RIGHT"]["confidence"]
-        right_box = output["RIGHT"]["box"]
-        right_label = None
-        
-        right_buffer.add_frame(right_kpts)
-        if right_buffer.is_ready():
-            window = right_buffer.get_window().to(DEVICE)
-            with torch.no_grad():
-                logits = classifier(window)[0]
-                pred_id = torch.argmax(logits, dim=1).item()
-                right_label = id_to_label[pred_id]
 
         # Record results
         for fencer, kpts, conf, box, label in zip(

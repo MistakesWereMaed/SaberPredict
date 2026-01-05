@@ -7,4 +7,4 @@ __pycache__
 wandb
 
 Dataset/Data/*
-Pipeline/test_out.csv
+Pipeline/Inference/test_out.csv

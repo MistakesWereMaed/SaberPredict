@@ -1,18 +1,20 @@
 import numpy as np
+from ultralytics import YOLO
 
-class OnlinePoseEstimator:
+PATH_PERSON_MODEL = "../Models/YOLO/yolo11x.pt"
+PATH_POSE_MODEL   = "../Models/YOLO/yolo11x-pose.pt"
+
+class PoseEstimator:
     def __init__(
         self,
-        person_model,
-        pose_model,
         roi,
         pad=20,
         imgsz=1280,
         person_conf=0.25,
         pose_conf=0.5,
     ):
-        self.person_model = person_model
-        self.pose_model = pose_model
+        self.person_model = YOLO(PATH_PERSON_MODEL, task="detect")
+        self.pose_model   = YOLO(PATH_POSE_MODEL, task="pose")
         self.roi = roi
         self.pad = pad
         self.imgsz = imgsz
