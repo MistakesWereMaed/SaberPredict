@@ -65,7 +65,7 @@ class TemporalConvNet(nn.Module):
         # x: (B, C, T)
         return self.network(x)  # (B, C_last, T)
 
-class model(pl.LightningModule):
+class TCN(pl.LightningModule):
     """
     TCN baseline classifier (FenceNet-style).
     Input: x shape (B, T, V, C)  (e.g. (B, 8, 17, 2))

@@ -1,17 +1,25 @@
 import numpy as np
+
 from ultralytics import YOLO
 
 PATH_PERSON_MODEL = "../Models/YOLO/yolo11x.pt"
 PATH_POSE_MODEL   = "../Models/YOLO/yolo11x-pose.pt"
 
+ROI             = (0, 600, 1900, 850)
+PAD             = 20
+IMG_SIZE        = 1280
+
+PERSON_CONF_THRESHOLD = 0.25
+POSE_CONF_THRESHOLD   = 0.5
+
 class PoseEstimator:
     def __init__(
         self,
-        roi,
-        pad=20,
-        imgsz=1280,
-        person_conf=0.25,
-        pose_conf=0.5,
+        roi=ROI,
+        pad=PAD,
+        imgsz=IMG_SIZE,
+        person_conf=PERSON_CONF_THRESHOLD,
+        pose_conf=POSE_CONF_THRESHOLD,
     ):
         self.person_model = YOLO(PATH_PERSON_MODEL, task="detect")
         self.pose_model   = YOLO(PATH_POSE_MODEL, task="pose")
