@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 
-import models._model as m
+import _model as m
 
 from typing import List
 from torchmetrics import Accuracy, ConfusionMatrix
@@ -44,27 +44,6 @@ class TemporalBlock(nn.Module):
         res = x if self.downsample is None else self.downsample(x)
         return self.relu(out + res)
 
-class TemporalConvNet(nn.Module):
-    """Stack of TemporalBlocks with increasing dilation"""
-    def __init__(self, in_channels: int, channels: List[int], kernel_size: int = 3, dropout: float = 0.1):
-        """
-        channels: list of out_channels per level (len = n_levels)
-        dilation doubles each layer: 1, 2, 4, ...
-        """
-        super().__init__()
-        layers = []
-        num_levels = len(channels)
-        prev_channels = in_channels
-        for i in range(num_levels):
-            dilation = 2 ** i
-            layers.append(TemporalBlock(prev_channels, channels[i], kernel_size, dilation, dropout))
-            prev_channels = channels[i]
-        self.network = nn.Sequential(*layers)
-
-    def forward(self, x):
-        # x: (B, C, T)
-        return self.network(x)  # (B, C_last, T)
-
 class TCN(pl.LightningModule):
     """
     TCN baseline classifier (FenceNet-style).
@@ -97,7 +76,15 @@ class TCN(pl.LightningModule):
 
         # TCN input channels = V * coord_dim (one channel per coordinate per joint)
         in_ch = self.V * self.coord_dim
-        self.tcn = TemporalConvNet(in_channels=in_ch, channels=tcn_channels, kernel_size=kernel_size, dropout=dropout)
+
+        layers = []
+        num_levels = len(tcn_channels)
+        prev_channels = in_ch
+        for i in range(num_levels):
+            dilation = 2 ** i
+            layers.append(TemporalBlock(prev_channels, tcn_channels[i], kernel_size, dilation, dropout))
+            prev_channels = tcn_channels[i]
+        self.network = nn.Sequential(*layers)
 
         tcn_out_ch = tcn_channels[-1]
         # embedding projection after temporal pooling (global time avg)
@@ -138,7 +125,7 @@ class TCN(pl.LightningModule):
         # channels = V * C (each joint coordinate is its own channel)
         x_ch = x.permute(0, 2, 3, 1).reshape(B, V * C, T)  # (B, V*C, T)
 
-        tcn_out = self.tcn(x_ch)  # (B, out_ch, T)
+        tcn_out = self.network(x_ch)  # (B, out_ch, T)
 
         # global temporal pooling (average)
         pooled = tcn_out.mean(dim=2)  # (B, out_ch)

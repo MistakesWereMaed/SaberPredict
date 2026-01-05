@@ -3,15 +3,15 @@ import argparse
 import wandb
 
 from dataloader import SkeletonDataModule
-from models import TCN, GNN, MLP
+from Models import classifier as c
 
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.tuner import Tuner
 
 PATH_DATA           = "../../Dataset/Data/Processed/data.csv"
-PATH_LOGS           = "../Logs"
-PATH_CHECKPOINTS    = "../Checkpoints"
+PATH_LOGS           = "./Logs"
+PATH_CHECKPOINTS    = "../Models/Checkpoints"
 
 PROJECT_NAME        = "SaberPredict"
 
@@ -20,23 +20,13 @@ MAX_EPOCHS          = 75
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, default="TCN")
     parser.add_argument("--tune", action="store_true", default=False)
     args = parser.parse_args()
 
-    model_name = args.model
-
-    match(model_name):
-        case "TCN":
-            model_class = TCN.model
-        case "GNN":
-            model_class = GNN.model
-        case "MLP":
-            model_class = MLP.model
-
+    name = "TCN"
     wandb_logger = WandbLogger(
         project=PROJECT_NAME,
-        name=model_name,
+        name=name,
         save_dir=PATH_LOGS
     )
 
@@ -47,7 +37,7 @@ def main():
     )
     data.setup()
 
-    model = model_class(
+    model = c.TCN(
         num_classes=data.num_classes,
         label_dict=data.label_dict,
         max_epochs=MAX_EPOCHS
@@ -55,7 +45,7 @@ def main():
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=PATH_CHECKPOINTS,
-        filename=f"{model_name}",
+        filename=f"{name}",
         save_top_k=1,
         monitor="val_loss",
         mode="min"
