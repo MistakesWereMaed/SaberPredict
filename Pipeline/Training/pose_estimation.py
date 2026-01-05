@@ -63,12 +63,13 @@ def process_video(video_path, pose_estimator, frame_ranges):
                 continue
 
             entry = result[fencer]
+            keypoints = entry["keypoints"].tolist() if isinstance(entry["keypoints"], np.ndarray) else []
 
             frame_rows.append({
                 "frame_idx": frame_idx,
                 "fencer": fencer,
                 "box": entry["box"],
-                "pose": entry["keypoints"],
+                "pose": keypoints,
                 "conf": entry["confidence"],
             })
 
@@ -88,9 +89,7 @@ def process_video(video_path, pose_estimator, frame_ranges):
                 (frame_df.frame_idx <= end)
             ]
 
-            actual = subset["pose"].apply(
-                lambda p: isinstance(p, np.ndarray)
-            ).sum()
+            actual = subset["conf"].apply(lambda p: p > 0).sum()
 
             metrics.append({
                 "fencer": fencer,
