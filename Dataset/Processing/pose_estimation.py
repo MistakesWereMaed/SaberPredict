@@ -3,13 +3,13 @@ import os
 import numpy as np
 import pandas as pd
 
-from Models import pose_estimator as pe
+from Pipeline.Models import pose_estimator as pe
 
-PATH_CLIPS            = "../Dataset/Videos/Clips/"
-PATH_ACTIONS_FILTERED = "../Dataset/Data/tmp/actions_filtered.csv"
+PATH_CLIPS            = "../Data/Videos/Clips/"
+PATH_ACTIONS_FILTERED = "../Data/Processed/actions_filtered.csv"
 
-PATH_KEYPOINTS        = "../Dataset/Data/Unprocessed/keypoints.csv"
-PATH_METRICS          = "../Dataset/Data/Unprocessed/metrics.csv"
+PATH_KEYPOINTS        = "../Data/Unprocessed/keypoints.csv"
+PATH_METRICS          = "../Data/Unprocessed/metrics.csv"
 
 # ------------------------------------------------------------
 # Frame range utilities
