@@ -33,8 +33,11 @@ def step(self, batch, batch_idx, mode: str):
     Shared logic for train/val/test steps.
     mode: one of {"train", "val", "test"}.
     """
-    x, y = batch
-    logits, emb = self(x)
+    x = batch["keypoints"]        # (B, T, V, 2)
+    conf = batch["confidence"]    # (B, T, 1)
+    y = batch["label"] 
+
+    logits, emb = self(x, conf)
 
     loss = F.cross_entropy(logits, y, label_smoothing=0.1)
     preds = torch.argmax(logits, dim=1)

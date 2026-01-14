@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 
-import _model as m
+import Models._model as m
 
 from typing import List
 from torchmetrics import Accuracy, ConfusionMatrix
@@ -110,13 +110,18 @@ class TCN(pl.LightningModule):
 
         self.apply(m.init_weights)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, conf: torch.Tensor):
         """
         x: (B, T, V, C)
         returns: logits (B, num_classes), emb (B, fc_hidden)
         """
         B, T, V, C = x.shape
-        assert V == self.V and T == self.T and C == self.coord_dim, f"Expect (B,{self.T},{self.V},{self.coord_dim})"
+
+        # conf: (B, T, 1) → (B, T, V, 1)
+        conf = conf.unsqueeze(2).expand(-1, -1, self.V, -1)
+        
+        # gate coordinates
+        x = x * conf
 
         # Normalize per-sample per-frame (center by mean, scale by max dist)
         x = m.normalize_input(x)  # (B,T,V,C)

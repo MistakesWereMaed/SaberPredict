@@ -2,14 +2,16 @@ import pytorch_lightning as pl
 import argparse
 import wandb
 
-from dataloader import SkeletonDataModule
-from Models import classifier as c
+from Models.dataloader import SkeletonDataModule
+from Models.classifier import TCN
 
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.tuner import Tuner
 
-PATH_DATA           = "../../Dataset/Data/Processed/data.csv"
+PATH_TRAIN           = "../Dataset/Data/Processed/train.csv"
+PATH_TEST            = "../Dataset/Data/Processed/test.csv"
+
 PATH_LOGS           = "./Logs"
 PATH_CHECKPOINTS    = "../Models/Checkpoints"
 
@@ -31,13 +33,14 @@ def main():
     )
 
     data = SkeletonDataModule(
-        csv_path=PATH_DATA,
+        train_csv=PATH_TRAIN,
+        test_csv=PATH_TEST,
         batch_size=BATCH_SIZE,
         num_workers=2,
     )
     data.setup()
 
-    model = c.TCN(
+    model = TCN(
         num_classes=data.num_classes,
         label_dict=data.label_dict,
         max_epochs=MAX_EPOCHS
