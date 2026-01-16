@@ -1,19 +1,7 @@
 import wandb
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
-
-def init_weights(m):
-    if isinstance(m, nn.Linear):
-        nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
-        if m.bias is not None:
-            nn.init.zeros_(m.bias)
-    if isinstance(m, nn.LayerNorm):
-        if m.weight is not None:
-            nn.init.ones_(m.weight)
-        if m.bias is not None:
-            nn.init.zeros_(m.bias)
 
 def normalize_input(x):
     # Simple per-sample center + scale normalization (same as earlier helpers)
@@ -34,10 +22,9 @@ def step(self, batch, batch_idx, mode: str):
     mode: one of {"train", "val", "test"}.
     """
     x = batch["keypoints"]        # (B, T, V, 2)
-    conf = batch["confidence"]    # (B, T, 1)
     y = batch["label"] 
 
-    logits, emb = self(x, conf)
+    logits, emb = self(x)
 
     loss = F.cross_entropy(logits, y, label_smoothing=0.1)
     preds = torch.argmax(logits, dim=1)

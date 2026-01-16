@@ -37,26 +37,20 @@ class SkeletonDataset(Dataset):
             kpts = np.nan_to_num(kpts, nan=0.0)
             kpts = kpts.reshape(WINDOW_SIZE, NUM_JOINTS, 2)
 
-            # --- Confidence (frame-wise, scalar) ---
-            conf = group["confidence"].values.astype(np.float32)
-            conf = np.nan_to_num(conf, nan=0.0)
-            conf = conf.reshape(WINDOW_SIZE, 1)
-
             # --- Label ---
             label_str = group["action"].iloc[0]
             label = self.label_to_id[label_str]
 
-            self.samples.append((kpts, conf, label))
+            self.samples.append((kpts, label))
 
     def __len__(self):
         return len(self.samples)
 
     def __getitem__(self, idx):
-        kpts, conf, label = self.samples[idx]
+        kpts, label = self.samples[idx]
 
         return {
             "keypoints": torch.from_numpy(kpts),      # (T, 17, 2)
-            "confidence": torch.from_numpy(conf),     # (T, 1)
             "label": torch.tensor(label, dtype=torch.long)
         }
 

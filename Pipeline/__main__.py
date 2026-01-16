@@ -14,7 +14,7 @@ MAP_PATH        = "Dataset/Data/label_map.csv"
 DEVICE          = "cuda" if torch.cuda.is_available() else "cpu"
 
 NUM_JOINTS      = 17
-WINDOW_SIZE     = 8
+WINDOW_SIZE     = 4
 
 class SkeletonWindowBuffer:
     def __init__(self, fencer, window_size=WINDOW_SIZE, num_joints=NUM_JOINTS):

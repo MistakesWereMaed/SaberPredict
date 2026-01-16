@@ -20,16 +20,6 @@ class TemporalBlock(nn.Module):
         self.relu = nn.ReLU()
         # adjust residual if channel dims differ
         self.downsample = nn.Conv1d(in_channels, out_channels, 1) if in_channels != out_channels else None
-        self.init_weights()
-
-    def init_weights(self):
-        nn.init.kaiming_normal_(self.conv1.weight, nonlinearity='relu')
-        nn.init.zeros_(self.conv1.bias)
-        nn.init.kaiming_normal_(self.conv2.weight, nonlinearity='relu')
-        nn.init.zeros_(self.conv2.bias)
-        if self.downsample is not None:
-            nn.init.kaiming_normal_(self.downsample.weight, nonlinearity='relu')
-            nn.init.zeros_(self.downsample.bias)
 
     def forward(self, x):
         # x: (B, C, T)
@@ -55,9 +45,8 @@ class TCN(pl.LightningModule):
         label_dict: dict,
         num_classes: int,
         num_joints: int = 17,
-        num_frames: int = 8,
         coord_dim: int = 2,
-        tcn_channels: List[int] = [128, 128, 256],  # channels for each temporal level
+        tcn_channels: List[int] = [128, 256, 512],  # channels for each temporal level
         kernel_size: int = 3,
         dropout: float = 0.1,
         fc_hidden: int = 768,
@@ -69,13 +58,8 @@ class TCN(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
-        self.num_classes = num_classes
-        self.V = num_joints
-        self.T = num_frames
-        self.coord_dim = coord_dim
-
         # TCN input channels = V * coord_dim (one channel per coordinate per joint)
-        in_ch = self.V * self.coord_dim
+        in_ch = num_joints * coord_dim
 
         layers = []
         num_levels = len(tcn_channels)
@@ -108,20 +92,12 @@ class TCN(pl.LightningModule):
         self.use_onecycle = use_onecycle
         self.max_epochs = max_epochs
 
-        self.apply(m.init_weights)
-
-    def forward(self, x: torch.Tensor, conf: torch.Tensor):
+    def forward(self, x: torch.Tensor):
         """
         x: (B, T, V, C)
         returns: logits (B, num_classes), emb (B, fc_hidden)
         """
         B, T, V, C = x.shape
-
-        # conf: (B, T, 1) → (B, T, V, 1)
-        conf = conf.unsqueeze(2).expand(-1, -1, self.V, -1)
-        
-        # gate coordinates
-        x = x * conf
 
         # Normalize per-sample per-frame (center by mean, scale by max dist)
         x = m.normalize_input(x)  # (B,T,V,C)
