@@ -8,7 +8,7 @@ from collections import deque
 from Pipeline.Models.classifier import TCN
 from Pipeline.Models.pose_estimator import PoseEstimator
 
-CHECKPOINT_PATH = "Pipeline/Models/Checkpoints/TCN-v2.ckpt"
+CHECKPOINT_PATH = "Pipeline/Models/Checkpoints/TCN-best.ckpt"
 MAP_PATH        = "Dataset/Data/label_map.csv"
 
 DEVICE          = "cuda" if torch.cuda.is_available() else "cpu"
@@ -62,8 +62,6 @@ class Pipeline():
         label   = "NO_ACTION"
 
         kpts    = output[fencer]["keypoints"]
-        conf    = output[fencer]["confidence"]
-        box     = output[fencer]["box"]
         
         buffer.add_frame(kpts)
         if buffer.is_ready():
@@ -73,7 +71,7 @@ class Pipeline():
                 pred_id = torch.argmax(logits, dim=1).item()
                 label = self.id_to_label[pred_id]
 
-        return [label, kpts, conf, box]
+        return [label, kpts]
 
     def run(self, video_path):
         cap = cv2.VideoCapture(video_path)
@@ -96,39 +94,36 @@ class Pipeline():
 
             t1 = time.perf_counter()
 
-            records.append(frame_idx, t1-t0, *left, *right)
+            records.append((frame_idx, t1-t0, *left, *right))
             frame_idx += 1
 
         cap.release()
         return records
 
     def unpack(self, records):
-        structured = []
+        rows = []
         for record in records:
-            frame_idx, time, left_label, left_kpts, left_conf, left_box, right_label, right_kpts, right_conf, right_box = record
-            dict = {
-                "frame_idx": frame_idx,
-                "time": time,
-                "LEFT": {
-                    "label": left_label,
-                    "keypoints": left_kpts,
-                    "confidence": left_conf,
-                    "box": left_box,
-                },
-                "RIGHT": {
-                    "label": right_label,
-                    "keypoints": right_kpts,
-                    "confidence": right_conf,
-                    "box": right_box,
-                },
-            }
-            structured.append(pd.DataFrame(dict, index=[0]))
+            frame_idx, time, left_label, left_kpts, right_label, right_kpts = record
 
-        return pd.concat(structured, ignore_index=True)
+            left_kpts = left_kpts.tolist() if isinstance(left_kpts, np.ndarray) else []
+            right_kpts = right_kpts.tolist() if isinstance(right_kpts, np.ndarray) else []
+
+            rows.append({
+                "frame_idx": frame_idx,
+                "time": time * 1000,
+
+                "left_label": left_label,
+                "left_keypoints": left_kpts,
+
+                "right_label": right_label,
+                "right_keypoints": right_kpts,
+            })
+
+        return pd.DataFrame(rows)
 
 def main():
-    video_path      = "../../Dataset/Videos/Clips/1/11_Left.mp4"
-    output_path     = "test_out.csv"
+    video_path      = "Dataset/Videos/Clips/1/11_Left.mp4"
+    output_path     = "Dataset/Data/test_out.csv"
 
     pipeline = Pipeline()
 
@@ -137,7 +132,7 @@ def main():
 
     df.to_csv(output_path, index=False)
 
-    print("\n--- Timing Summary ---")
+    print("\n--- Timing Summary (ms) ---")
     print(df["time"].describe())
 
 if __name__ == "__main__":
