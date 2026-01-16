@@ -2,23 +2,24 @@ import pytorch_lightning as pl
 import argparse
 import wandb
 
-from Models.dataloader import SkeletonDataModule
-from Models.classifier import TCN
+from Pipeline.Models.dataloader import SkeletonDataModule
+from Pipeline.Models.classifier import TCN
 
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.tuner import Tuner
 
-PATH_TRAIN           = "../Dataset/Data/Processed/train.csv"
-PATH_TEST            = "../Dataset/Data/Processed/test.csv"
+PATH_TRAIN          = "Dataset/Data/Processed/train.csv"
+PATH_TEST           = "Dataset/Data/Processed/test.csv"
 
-PATH_LOGS           = "./Logs"
-PATH_CHECKPOINTS    = "../Models/Checkpoints"
+PATH_LOGS           = "Pipeline/Logs"
+PATH_CHECKPOINTS    = "Pipeline/Models/Checkpoints"
 
 PROJECT_NAME        = "SaberPredict"
 
 BATCH_SIZE          = 32
 MAX_EPOCHS          = 75
+TUNED_LR            = 2.1877616239495526e-05
 
 def main():
     parser = argparse.ArgumentParser()
@@ -43,7 +44,8 @@ def main():
     model = TCN(
         num_classes=data.num_classes,
         label_dict=data.label_dict,
-        max_epochs=MAX_EPOCHS
+        max_epochs=MAX_EPOCHS,
+        lr=TUNED_LR
     )
 
     checkpoint_callback = ModelCheckpoint(
@@ -66,7 +68,7 @@ def main():
     if args.tune:
         tuner = Tuner(trainer)
 
-        lr_finder = tuner.lr_find(model, datamodule=data, min_lr=1e-4, max_lr=1e-2)
+        lr_finder = tuner.lr_find(model, datamodule=data, min_lr=1e-5, max_lr=1e-3)
         model.hparams.lr = lr_finder.suggestion()
 
     trainer.fit(model, data)
