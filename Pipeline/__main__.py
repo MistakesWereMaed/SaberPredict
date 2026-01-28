@@ -82,19 +82,19 @@ class Pipeline():
         records = []
 
         while True:
+            t0 = time.perf_counter()
             ret, frame = cap.read()
             if not ret:
                 break
-
-            t0 = time.perf_counter()
 
             output = self.pose_estimator.process_frame(frame, frame_idx)
             left   = self._process_pose(self.left_buffer, output)
             right  = self._process_pose(self.right_buffer, output)
 
             t1 = time.perf_counter()
+            time_ms = t1 - t0
 
-            records.append((frame_idx, t1-t0, *left, *right))
+            records.append((frame_idx, time_ms, *left, *right))
             frame_idx += 1
 
         cap.release()
@@ -109,14 +109,14 @@ class Pipeline():
             right_kpts = right_kpts.tolist() if isinstance(right_kpts, np.ndarray) else []
 
             rows.append({
-                "frame_idx": frame_idx,
-                "time": time * 1000,
+                "frame_idx":        frame_idx,
+                "time":           time,
 
-                "left_label": left_label,
-                "left_keypoints": left_kpts,
+                "left_label":       left_label,
+                "left_keypoints":   left_kpts,
 
-                "right_label": right_label,
-                "right_keypoints": right_kpts,
+                "right_label":      right_label,
+                "right_keypoints":  right_kpts,
             })
 
         return pd.DataFrame(rows)
@@ -132,8 +132,13 @@ def main():
 
     df.to_csv(output_path, index=False)
 
+    df_times = df[["time"]]
+
+    summary = df_times.agg(["mean", "median", "max", lambda x: x.quantile(0.95)])
+    summary.index = ["mean", "median", "max", "p95"]
+
     print("\n--- Timing Summary (ms) ---")
-    print(df["time"].describe())
+    print(summary * 1000)
 
 if __name__ == "__main__":
     main()

@@ -5,11 +5,11 @@ import pandas as pd
 
 from Pipeline.Models import pose_estimator as pe
 
-PATH_CLIPS            = "../Data/Videos/Clips/"
-PATH_ACTIONS_FILTERED = "../Data/Processed/actions_filtered.csv"
+PATH_CLIPS            = "Dataset/Videos/Clips/"
+PATH_ACTIONS_FILTERED = "Dataset/Data/Processed/actions_filtered.csv"
 
-PATH_KEYPOINTS        = "../Data/Unprocessed/keypoints.csv"
-PATH_METRICS          = "../Data/Unprocessed/metrics.csv"
+PATH_KEYPOINTS        = "Dataset/Data/Unprocessed/keypoints.csv"
+PATH_METRICS          = "Dataset/Data/Unprocessed/metrics.csv"
 
 # ------------------------------------------------------------
 # Frame range utilities
@@ -26,10 +26,11 @@ def create_frame_ranges():
                 zip(
                     g_fencer["action_id"],
                     g_fencer["start_frame"],
-                    g_fencer["end_frame"]
+                    g_fencer["end_frame"],
                 )
             )
     return frame_ranges
+
 
 # ------------------------------------------------------------
 # Video processing
@@ -53,7 +54,10 @@ def process_video(video_path, pose_estimator, frame_ranges):
             break
 
         # Skip frames with no labeled actions
-        if (frame_idx not in action_lookup["LEFT"] and frame_idx not in action_lookup["RIGHT"]):
+        if (
+            frame_idx not in action_lookup["LEFT"]
+            and frame_idx not in action_lookup["RIGHT"]
+        ):
             continue
 
         result = pose_estimator.process_frame(frame, frame_idx)
@@ -62,15 +66,24 @@ def process_video(video_path, pose_estimator, frame_ranges):
             if frame_idx not in action_lookup[fencer]:
                 continue
 
-            entry = result[fencer]
-            keypoints = entry["keypoints"].tolist() if isinstance(entry["keypoints"], np.ndarray) else []
+            entry = result.get(fencer)
+
+            if entry is None or entry.get("keypoints") is None:
+                frame_rows.append({
+                    "frame_idx": frame_idx,
+                    "fencer": fencer,
+                    "pose": [],
+                    "box": (),
+                    "conf": 0.0,
+                })
+                continue
 
             frame_rows.append({
                 "frame_idx": frame_idx,
                 "fencer": fencer,
+                "pose": entry["keypoints"].tolist(),
                 "box": entry["box"],
-                "pose": keypoints,
-                "conf": entry["confidence"],
+                "conf": float(entry["confidence"]),
             })
 
     cap.release()
@@ -84,12 +97,12 @@ def process_video(video_path, pose_estimator, frame_ranges):
         for action_id, start, end in ranges:
             expected = end - start + 1
             subset = frame_df[
-                (frame_df.fencer == fencer) &
-                (frame_df.frame_idx >= start) &
-                (frame_df.frame_idx <= end)
+                (frame_df.fencer == fencer)
+                & (frame_df.frame_idx >= start)
+                & (frame_df.frame_idx <= end)
             ]
 
-            actual = subset["conf"].apply(lambda p: p > 0).sum()
+            actual = subset["conf"].gt(0).sum()
 
             metrics.append({
                 "fencer": fencer,
@@ -98,10 +111,11 @@ def process_video(video_path, pose_estimator, frame_ranges):
                 "end_frame": end,
                 "expected": expected,
                 "actual": actual,
-                "coverage": actual / expected * 100
+                "coverage": actual / expected * 100.0,
             })
 
     return frame_df, pd.DataFrame(metrics)
+
 
 # ------------------------------------------------------------
 # Dataset-level driver
@@ -127,7 +141,7 @@ def process_all(pose_estimator, frame_ranges):
             frame_df, metrics_df = process_video(
                 full_path,
                 pose_estimator,
-                frame_ranges[rel_path]
+                frame_ranges[rel_path],
             )
 
             frame_df["file"] = rel_path
@@ -139,17 +153,27 @@ def process_all(pose_estimator, frame_ranges):
     df_metrics   = pd.concat(all_metrics, ignore_index=True)
 
     # Final formatting
-    df_keypoints.rename(columns={
-        "frame_idx": "frame",
-        "pose": "keypoints",
-        "conf": "confidence"
-    }, inplace=True)
+    df_keypoints.rename(
+        columns={
+            "frame_idx": "frame",
+            "pose": "keypoints",
+            "conf": "confidence",
+        },
+        inplace=True,
+    )
 
-    df_keypoints.sort_values(["file", "fencer", "frame"], inplace=True)
+    df_keypoints.sort_values(
+        ["file", "fencer", "frame"],
+        inplace=True,
+    )
     df_keypoints.reset_index(drop=True, inplace=True)
 
-    df_keypoints = df_keypoints[["file", "fencer", "frame", "box", "confidence", "keypoints"]]
+    df_keypoints = df_keypoints[
+        ["file", "fencer", "frame", "box", "confidence", "keypoints"]
+    ]
+
     return df_keypoints, df_metrics
+
 
 # ------------------------------------------------------------
 # Main

@@ -1,6 +1,6 @@
 import numpy as np
-
 from ultralytics import YOLO
+from scipy.spatial.distance import cdist
 
 PATH_PERSON_MODEL = "Pipeline/Models/Checkpoints/yolo11x.pt"
 PATH_POSE_MODEL   = "Pipeline/Models/Checkpoints/yolo11x-pose.pt"
@@ -10,7 +10,8 @@ PAD             = 20
 IMG_SIZE        = 1280
 
 PERSON_CONF_THRESHOLD = 0.25
-POSE_CONF_THRESHOLD   = 0.5
+POSE_CONF_THRESHOLD   = 0.25
+MAX_DIST_MOVEMENT     = 0.1  # pixels, threshold to consider pose moved
 
 class PoseEstimator:
     def __init__(
@@ -21,127 +22,99 @@ class PoseEstimator:
         person_conf=PERSON_CONF_THRESHOLD,
         pose_conf=POSE_CONF_THRESHOLD,
     ):
-        self.roi            = roi
-        self.pad            = pad
-        self.imgsz          = imgsz
-        self.person_conf    = person_conf
-        self.pose_conf      = pose_conf
-        self.person_model   = YOLO(PATH_PERSON_MODEL, task="detect")
-        self.pose_model     = YOLO(PATH_POSE_MODEL, task="pose")
+        self.roi        = roi
+        self.pad        = pad
+        self.imgsz      = imgsz
+        self.person_conf= person_conf
+        self.pose_conf  = pose_conf
 
-    def _detect_people(self, frame):
-        res = self.person_model(
-            frame, imgsz=self.imgsz, conf=self.person_conf, verbose=False
-        )
+        self.pose_model = YOLO(PATH_POSE_MODEL, task="pose")
+        self.previous_skeletons = []  # For motion tracking
 
-        boxes = []
-        for r in res:
-            for box in r.boxes.xyxy.cpu().numpy():
-                boxes.append(tuple(map(int, box)))
+    def _in_roi(self, centroid):
+        x1, y1, x2, y2 = self.roi
+        cx, cy = centroid
+        return x1 <= cx <= x2 and y1 <= cy <= y2
 
-        return boxes
+    def _filter_by_roi(self, poses):
+        filtered = []
+        for kpts, conf in poses:
+            centroid = np.mean(kpts, axis=0)
+            if self._in_roi(centroid):
+                filtered.append((kpts, conf))
+        return filtered
 
-    def _filter_and_assign_boxes(self, boxes):
-        x1r, y1r, x2r, y2r = self.roi
+    def _track_motion(self, poses):
+        """
+        Keep only poses that moved significantly from previous frame.
+        Simple nearest-neighbor matching using centroids.
+        """
+        if not self.previous_skeletons:
+            self.previous_skeletons = poses
+            return poses[:2]  # take up to 2 poses
 
-        # ROI filter
-        boxes = [
-            b for b in boxes
-            if x1r <= (b[0] + b[2]) / 2 <= x2r
-            and y1r <= (b[1] + b[3]) / 2 <= y2r
-        ]
+        prev_centroids = np.array([np.mean(k, axis=0) for k, _ in self.previous_skeletons])
+        new_centroids  = np.array([np.mean(k, axis=0) for k, _ in poses])
 
-        # Keep two largest
-        boxes.sort(
-            key=lambda b: (b[2] - b[0]) * (b[3] - b[1]),
-            reverse=True,
-        )
-        boxes = boxes[:2]
+        if len(prev_centroids) == 0 or len(new_centroids) == 0:
+            self.previous_skeletons = poses
+            return poses[:2]
 
-        left_box = right_box = None
+        # Compute distances between previous and current centroids
+        dist_matrix = cdist(prev_centroids, new_centroids)
+        min_dists = dist_matrix.min(axis=0)  # minimum distance to any previous pose
 
-        if len(boxes) == 2:
-            if (boxes[0][0] + boxes[0][2]) < (boxes[1][0] + boxes[1][2]):
-                left_box, right_box = boxes
-            else:
-                right_box, left_box = boxes
-        elif len(boxes) == 1:
-            left_box = boxes[0]
+        # Keep only poses that moved more than threshold
+        moving_poses = [(pose, dist) for pose, dist in zip(poses, min_dists) if dist > MAX_DIST_MOVEMENT]
 
-        return left_box, right_box
-    
-    def _pad_box(self, box, frame_shape, pad=10):
-        x1, y1, x2, y2 = box
-        h, w = frame_shape[:2]
-        x1_new = max(0, x1 - pad)
-        y1_new = max(0, y1 - pad)
-        x2_new = min(w, x2 + pad)
-        y2_new = min(h, y2 + pad)
-        return int(x1_new), int(y1_new), int(x2_new), int(y2_new)
+        # Sort by largest movement and keep top 2
+        moving_poses.sort(key=lambda x: x[1], reverse=True)
+        top_poses = [pose for pose, _ in moving_poses[:2]]
 
-    def _estimate_pose(self, frame, box):
-        if box is None:
-            return None, None
+        self.previous_skeletons = poses
+        return top_poses
 
-        fx1, fy1, fx2, fy2 = self._pad_box(box, frame.shape, self.pad)
-        crop = frame[fy1:fy2, fx1:fx2]
-
-        res = self.pose_model(crop, conf=self.pose_conf, verbose=False)
+    def process_frame(self, frame, frame_idx):
+        # Run full-frame multi-person pose estimation
+        res = self.pose_model(frame, conf=self.pose_conf, verbose=False)
 
         poses = []
-        confs = []
-
         for r in res:
             if r.keypoints is None:
                 continue
-
             kpts_xy = r.keypoints.xy.cpu().numpy()
             kpts_conf = (
                 r.keypoints.conf.cpu().numpy()
                 if hasattr(r.keypoints, "conf")
-                else None
+                else np.ones(len(kpts_xy))
             )
-
             for i, kpts in enumerate(kpts_xy):
-                k = kpts.copy()
-                k[:, 0] += fx1
-                k[:, 1] += fy1
-                poses.append(k)
+                poses.append((kpts, float(np.nanmean(kpts_conf[i]))))
 
-                if kpts_conf is not None and len(kpts_conf) > i:
-                    confs.append(float(np.nanmean(kpts_conf[i])))
-                else:
-                    confs.append(1.0)
+        # Filter by ROI
+        poses = self._filter_by_roi(poses)
 
-        if not poses:
-            return None, None
+        # Motion filtering
+        poses = self._track_motion(poses)
+        print(len(poses))
 
-        cx, cy = (fx1 + fx2) / 2, (fy1 + fy2) / 2
-        dists = [
-            np.linalg.norm(np.mean(p, axis=0) - np.array([cx, cy]))
-            for p in poses
-        ]
+        # Assign left/right based on X centroid
+        left_pose = right_pose = None
+        if poses:
+            poses.sort(key=lambda x: np.mean(x[0][:,0]))  # sort by X centroid
+            left_pose = poses[0]
+            if len(poses) > 1:
+                right_pose = poses[1]
 
-        best = int(np.argmin(dists))
-        return poses[best], confs[best]
-
-    def process_frame(self, frame, frame_idx):
-        boxes = self._detect_people(frame)
-        left_box, right_box = self._filter_and_assign_boxes(boxes)
-
-        left_pose, left_conf = self._estimate_pose(frame, left_box)
-        right_pose, right_conf = self._estimate_pose(frame, right_box)
-
-        return {
+        result = {
             "frame_idx": frame_idx,
             "LEFT": {
-                "box": left_box,
-                "keypoints": left_pose,
-                "confidence": left_conf,
+                "keypoints": left_pose[0] if left_pose else None,
+                "confidence": left_pose[1] if left_pose else None
             },
             "RIGHT": {
-                "box": right_box,
-                "keypoints": right_pose,
-                "confidence": right_conf,
+                "keypoints": right_pose[0] if right_pose else None,
+                "confidence": right_pose[1] if right_pose else None
             },
         }
+        return result
