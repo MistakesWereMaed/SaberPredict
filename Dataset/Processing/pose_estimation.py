@@ -31,7 +31,6 @@ def create_frame_ranges():
             )
     return frame_ranges
 
-
 # ------------------------------------------------------------
 # Video processing
 # ------------------------------------------------------------
@@ -72,8 +71,8 @@ def process_video(video_path, pose_estimator, frame_ranges):
                 frame_rows.append({
                     "frame_idx": frame_idx,
                     "fencer": fencer,
+                    "roi": [],
                     "pose": [],
-                    "box": (),
                     "conf": 0.0,
                 })
                 continue
@@ -81,8 +80,8 @@ def process_video(video_path, pose_estimator, frame_ranges):
             frame_rows.append({
                 "frame_idx": frame_idx,
                 "fencer": fencer,
+                "roi": result["roi"].tolist(),
                 "pose": entry["keypoints"].tolist(),
-                "box": entry["box"],
                 "conf": float(entry["confidence"]),
             })
 
@@ -169,7 +168,7 @@ def process_all(pose_estimator, frame_ranges):
     df_keypoints.reset_index(drop=True, inplace=True)
 
     df_keypoints = df_keypoints[
-        ["file", "fencer", "frame", "box", "confidence", "keypoints"]
+        ["file", "fencer", "frame", "roi", "confidence", "keypoints"]
     ]
 
     return df_keypoints, df_metrics

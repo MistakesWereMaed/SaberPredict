@@ -1,10 +1,13 @@
 *.mp4
-*.llc
-*.pt
 *.jpg
+*.pt
 *.ckpt
+
 __pycache__
-wandb
 
 Dataset/Data/*
+Dataset/YoloROI/*
+Pipeline/Models/Checkpoints/*
+Pipeline/Logs/*
+
 Pipeline/Inference/test_out.csv

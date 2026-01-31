@@ -94,7 +94,7 @@ class Pipeline():
             t1 = time.perf_counter()
             time_ms = t1 - t0
 
-            records.append((frame_idx, time_ms, *left, *right))
+            records.append((frame_idx, time_ms, *left, *right, output["roi"]))
             frame_idx += 1
 
         cap.release()
@@ -103,14 +103,16 @@ class Pipeline():
     def unpack(self, records):
         rows = []
         for record in records:
-            frame_idx, time, left_label, left_kpts, right_label, right_kpts = record
+            frame_idx, time, left_label, left_kpts, right_label, right_kpts, roi = record
 
             left_kpts = left_kpts.tolist() if isinstance(left_kpts, np.ndarray) else []
             right_kpts = right_kpts.tolist() if isinstance(right_kpts, np.ndarray) else []
+            roi = roi.tolist() if isinstance(roi, np.ndarray) else []
 
             rows.append({
                 "frame_idx":        frame_idx,
-                "time":           time,
+                "time":             time,
+                "roi":              roi,
 
                 "left_label":       left_label,
                 "left_keypoints":   left_kpts,
@@ -122,7 +124,7 @@ class Pipeline():
         return pd.DataFrame(rows)
 
 def main():
-    video_path      = "Dataset/Videos/Clips/1/11_Left.mp4"
+    video_path      = "Dataset/Videos/Clips/5/1_Left.mp4"
     output_path     = "Dataset/Data/test_out.csv"
 
     pipeline = Pipeline()
