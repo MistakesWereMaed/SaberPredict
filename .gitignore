@@ -7,7 +7,5 @@ __pycache__
 
 Dataset/Data/*
 Dataset/YoloROI/*
-Pipeline/Models/Checkpoints/*
-Pipeline/Logs/*
-
-Pipeline/Inference/test_out.csv
+Training/Checkpoints/*
+Training/Logs/*

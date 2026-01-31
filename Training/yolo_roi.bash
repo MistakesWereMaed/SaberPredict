@@ -3,18 +3,19 @@ set -euo pipefail
 
 # ---------------- USER CONFIG ---------------- #
 
-DATASET_ROOT="../../Dataset/YoloROI"
+DATASET_ROOT="../Dataset/YoloROI"
 DATA_YAML="${DATASET_ROOT}/data.yaml"
 
-MODEL="yolo11n.pt"          # start small; upgrade only if needed
+MODEL_SIZE="x"
+MODEL="Checkpoints/yolo11${MODEL_SIZE}.pt"          # start small; upgrade only if needed
 IMG_SIZE=640
-EPOCHS=60
+EPOCHS=20
 BATCH=16
 DEVICE=0                    # GPU id, use "cpu" if needed
-WORKERS=1
+WORKERS=2
 
-PROJECT="Checkpoints/strip_roi"
-NAME="yolo11m_finetune"
+PROJECT="Checkpoints"
+NAME="yolo11${MODEL_SIZE}_finetune"
 
 # --------------------------------------------- #
 

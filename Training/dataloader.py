@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
 PATH_LABEL_MAP = "Dataset/Data/label_map.csv"
+
 WINDOW_SIZE = 4
 NUM_JOINTS = 17
 

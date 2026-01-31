@@ -9,8 +9,8 @@ from collections import defaultdict
 VIDEO_ROOT  = Path("../Videos/Clips")       # root of nested video folders
 OUTPUT_ROOT = Path("../YoloROI")            # YOLO dataset root
 
-TRAIN_CSV   = Path("../Data/Processed/train_roi.csv")
-VAL_CSV     = Path("../Data/Processed/test_roi.csv")
+TRAIN_CSV   = Path("../Data/Processed/roi_train.csv")
+VAL_CSV     = Path("../Data/Processed/roi_test.csv")
 
 IMG_EXT     = ".jpg"
 CLASS_ID    = 0  # strip

@@ -1,9 +1,8 @@
-import cv2
 import os
-import numpy as np
 import pandas as pd
+import numpy as np
 
-from Pipeline.Models import pose_estimator as pe
+from Pipeline.__main__ import Pipeline
 
 PATH_CLIPS            = "Dataset/Videos/Clips/"
 PATH_ACTIONS_FILTERED = "Dataset/Data/Processed/actions_filtered.csv"
@@ -35,57 +34,43 @@ def create_frame_ranges():
 # Video processing
 # ------------------------------------------------------------
 
-def process_video(video_path, pose_estimator, frame_ranges):
-    cap = cv2.VideoCapture(video_path)
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+def process_video(video_path, pipeline, frame_ranges):
+    """
+    pipeline.run(video_path) -> DataFrame with per-frame outputs
+    """
+
+    pipeline.roi = None
+    df = pipeline.run(video_path, run_classification=False)
 
     frame_rows = []
 
-    # Build lookup
+    # Build action lookup
     action_lookup = {"LEFT": set(), "RIGHT": set()}
     for fencer, ranges in frame_ranges.items():
         for _, start, end in ranges:
             action_lookup[fencer].update(range(start, end + 1))
 
-    for frame_idx in range(frame_count):
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        # Skip frames with no labeled actions
-        if (
-            frame_idx not in action_lookup["LEFT"]
-            and frame_idx not in action_lookup["RIGHT"]
-        ):
-            continue
-
-        result = pose_estimator.process_frame(frame, frame_idx)
+    for _, row in df.iterrows():
+        frame_idx = int(row["frame_idx"])
 
         for fencer in ["LEFT", "RIGHT"]:
             if frame_idx not in action_lookup[fencer]:
                 continue
 
-            entry = result.get(fencer)
-
-            if entry is None or entry.get("keypoints") is None:
-                frame_rows.append({
-                    "frame_idx": frame_idx,
-                    "fencer": fencer,
-                    "roi": [],
-                    "pose": [],
-                    "conf": 0.0,
-                })
-                continue
+            if fencer == "LEFT":
+                kpts = row["left_keypoints"]
+                conf = row["left_confidence"]
+            else:
+                kpts = row["right_keypoints"]
+                conf = row["right_confidence"]
 
             frame_rows.append({
                 "frame_idx": frame_idx,
                 "fencer": fencer,
-                "roi": result["roi"].tolist(),
-                "pose": entry["keypoints"].tolist(),
-                "conf": float(entry["confidence"]),
+                "roi": row["roi"],
+                "pose": kpts if isinstance(kpts, list) else [],
+                "conf": float(conf) if conf is not None else 0.0,
             })
-
-    cap.release()
 
     frame_df = pd.DataFrame(frame_rows)
 
@@ -115,12 +100,11 @@ def process_video(video_path, pose_estimator, frame_ranges):
 
     return frame_df, pd.DataFrame(metrics)
 
-
 # ------------------------------------------------------------
 # Dataset-level driver
 # ------------------------------------------------------------
 
-def process_all(pose_estimator, frame_ranges):
+def process_all(pipeline, frame_ranges):
     all_frames = []
     all_metrics = []
 
@@ -139,11 +123,12 @@ def process_all(pose_estimator, frame_ranges):
 
             frame_df, metrics_df = process_video(
                 full_path,
-                pose_estimator,
+                pipeline,
                 frame_ranges[rel_path],
             )
 
             frame_df["file"] = rel_path
+            metrics_df["file"] = rel_path
 
             all_frames.append(frame_df)
             all_metrics.append(metrics_df)
@@ -173,16 +158,15 @@ def process_all(pose_estimator, frame_ranges):
 
     return df_keypoints, df_metrics
 
-
 # ------------------------------------------------------------
 # Main
 # ------------------------------------------------------------
 
 def main():
-    pose_estimator = pe.PoseEstimator()
+    pipeline = Pipeline()
 
     frame_ranges = create_frame_ranges()
-    keypoints_df, metrics_df = process_all(pose_estimator, frame_ranges)
+    keypoints_df, metrics_df = process_all(pipeline, frame_ranges)
 
     keypoints_df.to_csv(PATH_KEYPOINTS, index=False)
     metrics_df.to_csv(PATH_METRICS, index=False)

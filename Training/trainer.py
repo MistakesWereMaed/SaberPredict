@@ -2,18 +2,18 @@ import pytorch_lightning as pl
 import argparse
 import wandb
 
-from Pipeline.Models.dataloader import SkeletonDataModule
-from Pipeline.Models.classifier import TCN
+from Training.dataloader import SkeletonDataModule
+from Pipeline.classifier import TCN
 
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.tuner import Tuner
 
-PATH_TRAIN          = "Dataset/Data/Processed/train.csv"
-PATH_TEST           = "Dataset/Data/Processed/test.csv"
+PATH_TRAIN          = "Dataset/Data/Processed/cls_train.csv"
+PATH_TEST           = "Dataset/Data/Processed/cls_test.csv"
 
-PATH_LOGS           = "Pipeline/Logs"
-PATH_CHECKPOINTS    = "Pipeline/Models/Checkpoints"
+PATH_LOGS           = "Training/Logs"
+PATH_CHECKPOINTS    = "Training/Checkpoints"
 
 PROJECT_NAME        = "SaberPredict"
 

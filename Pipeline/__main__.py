@@ -4,143 +4,172 @@ import torch
 import pandas as pd
 import numpy as np
 
-from collections import deque
-from Pipeline.Models.classifier import TCN
-from Pipeline.Models.pose_estimator import PoseEstimator
+from Pipeline.roi_detector import ROIDetector
+from Pipeline.pose_estimator import PoseEstimator
+from Pipeline.pose_filter import PoseFilter
+from Pipeline.classifier import TCN
+from Pipeline.buffer import SkeletonWindowBuffer
 
-CHECKPOINT_PATH = "Pipeline/Models/Checkpoints/TCN-best.ckpt"
-MAP_PATH        = "Dataset/Data/label_map.csv"
 
-DEVICE          = "cuda" if torch.cuda.is_available() else "cpu"
+# ---------------- CONFIG ---------------- #
 
-NUM_JOINTS      = 17
-WINDOW_SIZE     = 4
+PATH_VIDEO          = "Dataset/Videos/Clips/4/7_Right.mp4"
+PATH_OUTPUT         = "Dataset/Data/test_out.csv"
+PATH_LABEL_MAP      = "Dataset/Data/label_map.csv"
 
-class SkeletonWindowBuffer:
-    def __init__(self, fencer, window_size=WINDOW_SIZE, num_joints=NUM_JOINTS):
-        self.fencer = fencer
-        self.window_size = window_size
-        self.num_joints = num_joints
-        self.buffer = deque(maxlen=window_size)
+PATH_ROI_MODEL      = "Training/Checkpoints/xlarge.pt"
+PATH_POSE_MODEL     = "Training/Checkpoints/yolo11x-pose.pt"
+PATH_TCN            = "Training/Checkpoints/TCN-best.ckpt"
 
-    def add_frame(self, keypoints):
-        """
-        keypoints: np.ndarray (17, 2) or None
-        """
-        if keypoints is None:
-            # Strictly match training-time shape
-            keypoints = np.zeros((self.num_joints, 2), dtype=np.float32)
+IMG_SIZE_ROI        = 640
+IMG_SIZE_POSE       = 1280
 
-        self.buffer.append(keypoints.astype(np.float32))
+ROI_CONF_THRESHOLD  = 0.25
+POSE_CONF_THRESHOLD = 0.25
 
-    def is_ready(self):
-        return len(self.buffer) == self.window_size
+MAX_OUTSIDE_RATIO   = 0.5
+MIN_POSE_AREA       = 1200
 
-    def get_window(self):
-        """
-        Returns shape (1, T, 17, 2)
-        """
-        assert self.is_ready()
-        window = np.stack(self.buffer, axis=0)  # (8, 17, 2)
-        return torch.from_numpy(window).unsqueeze(0)
+# ---------------- PIPELINE ---------------- #
 
-class Pipeline():
+class Pipeline:
     def __init__(self):
-        self.pose_estimator     = PoseEstimator()
-        self.classifier         = TCN.load_from_checkpoint(CHECKPOINT_PATH, map_location=DEVICE)
+        self.device         = "cuda" if torch.cuda.is_available() else "cpu"
 
-        self.left_buffer        = SkeletonWindowBuffer("LEFT")
-        self.right_buffer       = SkeletonWindowBuffer("RIGHT")
-        
-        label_map = pd.read_csv(MAP_PATH)
-        
+        self.roi_detector   = ROIDetector(PATH_ROI_MODEL, imgsz=IMG_SIZE_ROI, conf=ROI_CONF_THRESHOLD)
+        self.pose_estimator = PoseEstimator(PATH_POSE_MODEL, imgsz=IMG_SIZE_POSE, conf=POSE_CONF_THRESHOLD)
+        self.pose_filter    = PoseFilter(max_outside_ratio=MAX_OUTSIDE_RATIO, min_area=MIN_POSE_AREA)
+        self.classifier     = TCN.load_from_checkpoint(PATH_TCN, map_location=self.device,).eval()
+
+        self.left_buffer    = SkeletonWindowBuffer("LEFT")
+        self.right_buffer   = SkeletonWindowBuffer("RIGHT")
+
+        label_map = pd.read_csv(PATH_LABEL_MAP)
         self.id_to_label = {row["id"]: row["label"] for _, row in label_map.iterrows()}
-        self.classifier.eval()
 
-    def _process_pose(self, buffer, output):
-        fencer  = buffer.fencer
-        label   = "NO_ACTION"
+        self.roi = None  # persistent ROI
 
-        kpts    = output[fencer]["keypoints"]
-        
+    def _maybe_classify(self, buffer, assigned, run_classification=True):
+        t0 = time.perf_counter()
+
+        fencer = buffer.fencer
+        label = "SKIPPED" if not run_classification else "NO_ACTION"
+
+        entry = assigned.get(fencer)
+        kpts = entry["keypoints"] if entry else None
+        conf = entry["confidence"] if entry else None
+
+        if not run_classification:
+            return label, kpts, conf, 0.0
+
         buffer.add_frame(kpts)
+
         if buffer.is_ready():
-            window = buffer.get_window().to(DEVICE)
+            window = buffer.get_window().to(self.device)
             with torch.no_grad():
                 logits = self.classifier(window)[0]
                 pred_id = torch.argmax(logits, dim=1).item()
                 label = self.id_to_label[pred_id]
 
-        return [label, kpts]
+        t_ms = (time.perf_counter() - t0) * 1000
+        return label, kpts, conf, t_ms
 
-    def run(self, video_path):
+    def run(self, video_path, run_classification=True):
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             raise RuntimeError(f"Cannot open video: {video_path}")
 
-        frame_idx = 0
         records = []
+        frame_idx = 0
 
         while True:
-            t0 = time.perf_counter()
+            t_frame = time.perf_counter()
+
             ret, frame = cap.read()
             if not ret:
                 break
 
-            output = self.pose_estimator.process_frame(frame, frame_idx)
-            left   = self._process_pose(self.left_buffer, output)
-            right  = self._process_pose(self.right_buffer, output)
+            # -------- ROI (first frame only) -------- #
+            t_roi = 0.0
+            if self.roi is None:
+                self.roi, t_roi = self.roi_detector.detect(frame)
 
-            t1 = time.perf_counter()
-            time_ms = t1 - t0
+            # -------- Pose Estimation -------- #
+            poses, t_pose = self.pose_estimator.infer(frame)
 
-            records.append((frame_idx, time_ms, *left, *right, output["roi"]))
+            # -------- Pose Filtering -------- #
+            assigned, t_filter = self.pose_filter.filter_and_assign(
+                poses,
+                self.roi,
+            )
+
+            # -------- Classification -------- #
+            left_label, left_kpts, left_conf, t_cls_l = self._maybe_classify(
+                self.left_buffer,
+                assigned,
+                run_classification=run_classification,
+            )
+
+            right_label, right_kpts, right_conf, t_cls_r = self._maybe_classify(
+                self.right_buffer,
+                assigned,
+                run_classification=run_classification,
+            )
+
+            t_total = (time.perf_counter() - t_frame) * 1000
+
+            records.append({
+                "frame_idx": frame_idx,
+
+                "time_total_ms": t_total,
+                "time_roi_ms": t_roi,
+                "time_pose_ms": t_pose,
+                "time_filter_ms": t_filter,
+                "time_classify_ms": t_cls_l + t_cls_r,
+
+                "roi": self.roi.tolist() if self.roi is not None else [],
+
+                "left_label": left_label,
+                "left_confidence": left_conf,
+                "left_keypoints": (
+                    left_kpts.tolist() if isinstance(left_kpts, np.ndarray) else []
+                ),
+
+                "right_label": right_label,
+                "right_confidence": right_conf,
+                "right_keypoints": (
+                    right_kpts.tolist() if isinstance(right_kpts, np.ndarray) else []
+                ),
+            })
+
             frame_idx += 1
 
         cap.release()
-        return records
+        return pd.DataFrame(records)
 
-    def unpack(self, records):
-        rows = []
-        for record in records:
-            frame_idx, time, left_label, left_kpts, right_label, right_kpts, roi = record
-
-            left_kpts = left_kpts.tolist() if isinstance(left_kpts, np.ndarray) else []
-            right_kpts = right_kpts.tolist() if isinstance(right_kpts, np.ndarray) else []
-            roi = roi.tolist() if isinstance(roi, np.ndarray) else []
-
-            rows.append({
-                "frame_idx":        frame_idx,
-                "time":             time,
-                "roi":              roi,
-
-                "left_label":       left_label,
-                "left_keypoints":   left_kpts,
-
-                "right_label":      right_label,
-                "right_keypoints":  right_kpts,
-            })
-
-        return pd.DataFrame(rows)
+# ---------------- MAIN ---------------- #
 
 def main():
-    video_path      = "Dataset/Videos/Clips/5/1_Left.mp4"
-    output_path     = "Dataset/Data/test_out.csv"
-
     pipeline = Pipeline()
 
-    results = pipeline.run(video_path)
-    df      = pipeline.unpack(results)
+    df = pipeline.run(PATH_VIDEO)
+    df.to_csv(PATH_OUTPUT, index=False)
 
-    df.to_csv(output_path, index=False)
+    timing_cols = [
+        "time_total_ms",
+        "time_roi_ms",
+        "time_pose_ms",
+        "time_filter_ms",
+        "time_classify_ms",
+    ]
 
-    df_times = df[["time"]]
-
-    summary = df_times.agg(["mean", "median", "max", lambda x: x.quantile(0.95)])
+    summary = df[timing_cols].agg(
+        ["mean", "median", "max", lambda x: x.quantile(0.95)]
+    )
     summary.index = ["mean", "median", "max", "p95"]
 
     print("\n--- Timing Summary (ms) ---")
-    print(summary * 1000)
+    print(summary.round(2))
 
 if __name__ == "__main__":
     main()
