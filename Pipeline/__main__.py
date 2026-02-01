@@ -10,10 +10,9 @@ from Pipeline.pose_filter import PoseFilter
 from Pipeline.classifier import TCN
 from Pipeline.buffer import SkeletonWindowBuffer
 
-
 # ---------------- CONFIG ---------------- #
 
-PATH_VIDEO          = "Dataset/Videos/Clips/4/7_Right.mp4"
+PATH_VIDEO          = "Dataset/Videos/Clips/1/11_Left.mp4"
 PATH_OUTPUT         = "Dataset/Data/test_out.csv"
 PATH_LABEL_MAP      = "Dataset/Data/label_map.csv"
 
@@ -27,8 +26,8 @@ IMG_SIZE_POSE       = 1280
 ROI_CONF_THRESHOLD  = 0.25
 POSE_CONF_THRESHOLD = 0.25
 
-MAX_OUTSIDE_RATIO   = 0.5
-MIN_POSE_AREA       = 1200
+MAX_OUTSIDE_RATIO   = 0.70
+MIN_POSE_AREA       = 800
 
 # ---------------- PIPELINE ---------------- #
 

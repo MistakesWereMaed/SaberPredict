@@ -7,7 +7,7 @@ DATASET_ROOT="../Dataset/YoloROI"
 DATA_YAML="${DATASET_ROOT}/data.yaml"
 
 MODEL_SIZE="x"
-MODEL="Checkpoints/yolo11${MODEL_SIZE}.pt"          # start small; upgrade only if needed
+MODEL="yolo11${MODEL_SIZE}.pt"          # start small; upgrade only if needed
 IMG_SIZE=640
 EPOCHS=20
 BATCH=16

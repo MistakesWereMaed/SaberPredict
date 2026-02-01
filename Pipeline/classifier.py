@@ -132,13 +132,13 @@ class TCN(pl.LightningModule):
     # training / validation steps
 
     def training_step(self, batch, batch_idx):
-        return self._step(self, batch, batch_idx, "train")
+        return self._step(batch, batch_idx, "train")
 
     def validation_step(self, batch, batch_idx):
-        return self._step(self, batch, batch_idx, "val")
+        return self._step(batch, batch_idx, "val")
 
     def test_step(self, batch, batch_idx):
-        return self._step(self, batch, batch_idx, "test")
+        return self._step(batch, batch_idx, "test")
     
     def on_test_epoch_end(self):
         self._draw_plots()

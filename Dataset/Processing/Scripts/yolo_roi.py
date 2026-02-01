@@ -6,11 +6,11 @@ from collections import defaultdict
 
 # ---------------- CONFIG ---------------- #
 
-VIDEO_ROOT  = Path("../Videos/Clips")       # root of nested video folders
-OUTPUT_ROOT = Path("../YoloROI")            # YOLO dataset root
+VIDEO_ROOT  = Path("Dataset/Videos/Clips")       # root of nested video folders
+OUTPUT_ROOT = Path("Dataset/YoloROI")            # YOLO dataset root
 
-TRAIN_CSV   = Path("../Data/Processed/roi_train.csv")
-VAL_CSV     = Path("../Data/Processed/roi_test.csv")
+TRAIN_CSV   = Path("Dataset/Data/Processed/roi_train.csv")
+VAL_CSV     = Path("Dataset/Data/Processed/roi_test.csv")
 
 IMG_EXT     = ".jpg"
 CLASS_ID    = 0  # strip
