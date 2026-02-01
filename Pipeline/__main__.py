@@ -12,7 +12,7 @@ from Pipeline.buffer import SkeletonWindowBuffer
 
 # ---------------- CONFIG ---------------- #
 
-PATH_VIDEO          = "Dataset/Videos/Clips/1/11_Left.mp4"
+PATH_VIDEO          = "Dataset/Videos/Clips/5/1_Left.mp4"
 PATH_OUTPUT         = "Dataset/Data/test_out.csv"
 PATH_LABEL_MAP      = "Dataset/Data/label_map.csv"
 
@@ -27,7 +27,9 @@ ROI_CONF_THRESHOLD  = 0.25
 POSE_CONF_THRESHOLD = 0.25
 
 MAX_OUTSIDE_RATIO   = 0.70
-MIN_POSE_AREA       = 800
+MIN_POSE_AREA       = 1200
+
+ROI_PAD_Y           = 50
 
 # ---------------- PIPELINE ---------------- #
 
@@ -93,8 +95,27 @@ class Pipeline:
             if self.roi is None:
                 self.roi, t_roi = self.roi_detector.detect(frame)
 
-            # -------- Pose Estimation -------- #
-            poses, t_pose = self.pose_estimator.infer(frame)
+           # -------- Pose Estimation (ROI-cropped) -------- #
+            h, w = frame.shape[:2]
+            x1, y1, x2, y2 = self.roi
+
+            # padded ROI (clamped)
+            py1 = max(0, y1 - ROI_PAD_Y)
+            py2 = min(h, y2 + ROI_PAD_Y)
+
+            roi_crop = frame[py1:py2, x1:x2]
+
+            poses, t_pose = self.pose_estimator.infer(roi_crop)
+
+            # remap keypoints to full-frame coordinates
+            for p in poses:
+                p["keypoints"][:, 0] += x1
+                p["keypoints"][:, 1] += py1
+                if "bbox" in p:
+                    p["bbox"][0] += x1
+                    p["bbox"][1] += py1
+                    p["bbox"][2] += x1
+                    p["bbox"][3] += py1
 
             # -------- Pose Filtering -------- #
             assigned, t_filter = self.pose_filter.filter_and_assign(
