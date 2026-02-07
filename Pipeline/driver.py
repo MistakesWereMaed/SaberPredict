@@ -1,3 +1,5 @@
+import os
+import re
 import cv2
 import time
 import torch
@@ -11,14 +13,11 @@ from Pipeline.classifier import TCN
 from Pipeline.buffer import SkeletonWindowBuffer
 
 # ---------------- CONFIG ---------------- #
-
-PATH_VIDEO          = "Dataset/Videos/Clips/5/1_Left.mp4"
-PATH_OUTPUT         = "Dataset/Data/test_out.csv"
 PATH_LABEL_MAP      = "Dataset/Data/label_map.csv"
 
 PATH_ROI_MODEL      = "Training/Checkpoints/xlarge.pt"
 PATH_POSE_MODEL     = "Training/Checkpoints/yolo11x-pose.pt"
-PATH_TCN            = "Training/Checkpoints/TCN-best.ckpt"
+PATH_TCN            = "Training/Checkpoints/"
 
 IMG_SIZE_ROI        = 640
 IMG_SIZE_POSE       = 1280
@@ -31,6 +30,32 @@ MIN_POSE_AREA       = 1200
 
 ROI_PAD_Y           = 50
 
+def get_best_checkpoint(checkpoints_dir):
+    """
+    Returns the checkpoint file with the highest val_acc in the given directory.
+
+    Expects filenames like: 'TCN-epoch=25-val_acc=0.86.ckpt'
+    """
+    best_file = None
+    best_acc = -1.0
+
+    pattern = re.compile(r"val_acc=([0-9]+)")
+
+    for fname in os.listdir(checkpoints_dir):
+        if not fname.endswith(".ckpt"):
+            continue
+        match = pattern.search(fname)
+        if match:
+            acc = float(match.group(1))
+            if acc > best_acc:
+                best_acc = acc
+                best_file = fname
+
+    if best_file is None:
+        raise FileNotFoundError(f"No valid checkpoint found in {checkpoints_dir}")
+
+    return os.path.join(checkpoints_dir, best_file)
+
 # ---------------- PIPELINE ---------------- #
 
 class Pipeline:
@@ -40,13 +65,15 @@ class Pipeline:
         self.roi_detector   = ROIDetector(PATH_ROI_MODEL, imgsz=IMG_SIZE_ROI, conf=ROI_CONF_THRESHOLD)
         self.pose_estimator = PoseEstimator(PATH_POSE_MODEL, imgsz=IMG_SIZE_POSE, conf=POSE_CONF_THRESHOLD)
         self.pose_filter    = PoseFilter(max_outside_ratio=MAX_OUTSIDE_RATIO, min_area=MIN_POSE_AREA)
-        self.classifier     = TCN.load_from_checkpoint(PATH_TCN, map_location=self.device,).eval()
+
+        checkpoint          = get_best_checkpoint(PATH_TCN)
+        self.classifier     = TCN.load_from_checkpoint(checkpoint, map_location=self.device,).eval()
 
         self.left_buffer    = SkeletonWindowBuffer("LEFT")
         self.right_buffer   = SkeletonWindowBuffer("RIGHT")
 
-        label_map = pd.read_csv(PATH_LABEL_MAP)
-        self.id_to_label = {row["id"]: row["label"] for _, row in label_map.iterrows()}
+        self.label_map = pd.read_csv(PATH_LABEL_MAP)
+        self.id_to_label = {row["id"]: row["label"] for _, row in self.label_map.iterrows()}
 
         self.roi = None  # persistent ROI
 
@@ -69,7 +96,10 @@ class Pipeline:
             window = buffer.get_window().to(self.device)
             with torch.no_grad():
                 logits = self.classifier(window)[0]
-                pred_id = torch.argmax(logits, dim=1).item()
+                if logits.dim() == 3:
+                    logits = logits[0]          # [T, C]
+
+                pred_id = torch.argmax(logits[-1], dim=-1).item()
                 label = self.id_to_label[pred_id]
 
         t_ms = (time.perf_counter() - t0) * 1000
@@ -166,30 +196,3 @@ class Pipeline:
 
         cap.release()
         return pd.DataFrame(records)
-
-# ---------------- MAIN ---------------- #
-
-def main():
-    pipeline = Pipeline()
-
-    df = pipeline.run(PATH_VIDEO)
-    df.to_csv(PATH_OUTPUT, index=False)
-
-    timing_cols = [
-        "time_total_ms",
-        "time_roi_ms",
-        "time_pose_ms",
-        "time_filter_ms",
-        "time_classify_ms",
-    ]
-
-    summary = df[timing_cols].agg(
-        ["mean", "median", "max", lambda x: x.quantile(0.95)]
-    )
-    summary.index = ["mean", "median", "max", "p95"]
-
-    print("\n--- Timing Summary (ms) ---")
-    print(summary.round(2))
-
-if __name__ == "__main__":
-    main()

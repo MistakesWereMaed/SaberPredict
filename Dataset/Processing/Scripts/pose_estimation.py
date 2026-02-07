@@ -2,7 +2,7 @@ import os
 import pandas as pd
 import numpy as np
 
-from Pipeline.__main__ import Pipeline
+from Pipeline.driver import Pipeline
 
 PATH_CLIPS            = "Dataset/Videos/Clips/"
 PATH_ACTIONS_FILTERED = "Dataset/Data/Processed/actions_filtered.csv"
