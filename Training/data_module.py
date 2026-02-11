@@ -1,70 +1,52 @@
 import pytorch_lightning as pl
 
 from torch.utils.data import DataLoader
-
-from Training.dataset import SkeletonSequenceDataset
-from Training.sampler import BoundaryAwareSequenceSampler
+from Training.dataset import SkeletonDataset
 
 class SkeletonDataModule(pl.LightningDataModule):
     def __init__(
         self,
-        train_frame_csv,
-        train_sequence_csv,
-        val_frame_csv,
-        val_sequence_csv,
+        train_csv,
+        test_csv,
         batch_size=32,
-        num_workers=2,
+        num_workers=4,
     ):
         super().__init__()
-        self.train_frame_csv = train_frame_csv
-        self.train_sequence_csv = train_sequence_csv
-        self.val_frame_csv = val_frame_csv
-        self.val_sequence_csv = val_sequence_csv
-
+        self.train_csv = train_csv
+        self.test_csv = test_csv
         self.batch_size = batch_size
         self.num_workers = num_workers
 
     def setup(self, stage=None):
-        self.train_set = SkeletonSequenceDataset(
-            self.train_frame_csv,
-            self.train_sequence_csv
-        )
-
-        self.val_set = SkeletonSequenceDataset(
-            self.val_frame_csv,
-            self.val_sequence_csv
-        )
-
-        self.num_classes = len(self.train_set.label_to_id)
+        # Build train first to define label space
+        self.train_set = SkeletonDataset(self.train_csv)
         self.label_dict = self.train_set.id_to_label
+        self.num_classes = len(self.label_dict)
 
-        self.train_sampler = BoundaryAwareSequenceSampler(
-            sequence_df=self.train_set.seq_df,
-            #label_map=self.train_set.label_map
-        )
+        # Share label mapping across splits
+        self.test_set = SkeletonDataset(self.test_csv)
 
     def train_dataloader(self):
         return DataLoader(
             self.train_set,
             batch_size=self.batch_size,
-            sampler=self.train_sampler,
-            shuffle=False,
+            shuffle=True,
             num_workers=self.num_workers,
             persistent_workers=self.num_workers > 0,
         )
 
     def val_dataloader(self):
         return DataLoader(
-            self.val_set,
+            self.test_set,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             persistent_workers=self.num_workers > 0,
         )
-    
+
     def test_dataloader(self):
         return DataLoader(
-            self.val_set,
+            self.test_set,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,

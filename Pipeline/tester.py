@@ -15,6 +15,9 @@ from Pipeline.driver import Pipeline
 PATH_CLIPS       = "Dataset/Videos/Clips"
 
 PATH_TEST        = "Dataset/Data/Processed/cls_test.csv"
+PATH_KEYPOINTS   = "Dataset/Data/Unprocessed/keypoints.csv"
+PATH_ACTIONS     = "Dataset/Data/Processed/actions_filtered.csv"
+
 PATH_TEST_OUT    = "Dataset/Data/test.csv"
 PATH_METRICS     = "Dataset/Data/metrics.json"
 
@@ -22,8 +25,15 @@ PATH_METRICS     = "Dataset/Data/metrics.json"
 # Utilities
 # ----------------------------
 
-def restructure_test_df(test_df: pd.DataFrame) -> pd.DataFrame:
-    df = test_df.copy()
+def restructure_df(df_keypoints, df_actions, test_files):
+    df = df_keypoints.merge(df_actions, on=["file", "fencer"], how="left")
+    df = df[
+        (df["frame"] >= df["start_frame"]) &
+        (df["frame"] <= df["end_frame"])
+    ]
+
+    df = df[["file", "fencer", "action_id", "action", "frame", "start_frame", "end_frame", "confidence", "keypoints"]].reset_index(drop=True)
+    df = df[df["file"].isin(test_files)]
 
     # Pivot to wide format
     wide = (
@@ -233,10 +243,14 @@ def main():
     pipeline = Pipeline()
     label_order = pipeline.label_map["label"].tolist()
 
-    test_df = pd.read_csv(PATH_TEST)
-    test_df = restructure_test_df(test_df)
+    df_test = pd.read_csv(PATH_TEST)
+    df_keypoints = pd.read_csv(PATH_KEYPOINTS)
+    df_actions = pd.read_csv(PATH_ACTIONS)
 
-    df = run_full_test(pipeline, test_df, PATH_CLIPS)
+    test_files = df_test["file"].unique()
+    df_test = restructure_df(df_keypoints, df_actions, test_files)
+
+    df = run_full_test(pipeline, df_test, PATH_CLIPS)
     metrics = evaluate_pipeline_results(df, label_order)
 
     df.rename(columns={"frame_idx": "frame"}, inplace=True)

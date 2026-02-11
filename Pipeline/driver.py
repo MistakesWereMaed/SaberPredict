@@ -81,7 +81,7 @@ class Pipeline:
         t0 = time.perf_counter()
 
         fencer = buffer.fencer
-        label = "SKIPPED" if not run_classification else "NO_ACTION"
+        label = "SKIPPED" if not run_classification else "OTHER_NO_ACTION"
 
         entry = assigned.get(fencer)
         kpts = entry["keypoints"] if entry else None
