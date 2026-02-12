@@ -25,11 +25,11 @@ class TemporalBlock(nn.Module):
     """Single residual temporal block: Conv1d -> ReLU -> Dropout -> Conv1d -> ReLU -> Dropout + residual"""
     def __init__(self, in_channels: int, out_channels: int, kernel_size: int, dilation: int, dropout: float):
         super().__init__()
-        padding = (kernel_size - 1) // 2 * dilation  # symmetric padding to preserve length (non-causal)
+        self.padding = (kernel_size - 1) * dilation  # casual padding to preserve length (non-causal)
         self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size,
-                               padding=padding, dilation=dilation)
+                               padding=self.padding, dilation=dilation)
         self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size,
-                               padding=padding, dilation=dilation)
+                               padding=self.padding, dilation=dilation)
         self.dropout = nn.Dropout(dropout)
         self.relu = nn.ReLU()
         # adjust residual if channel dims differ
@@ -38,10 +38,12 @@ class TemporalBlock(nn.Module):
     def forward(self, x):
         # x: (B, C, T)
         out = self.conv1(x)
+        out = out[:, :, :-self.padding]
         out = self.relu(out)
         out = self.dropout(out)
 
         out = self.conv2(out)
+        out = out[:, :, :-self.padding]
         out = self.relu(out)
         out = self.dropout(out)
 
@@ -59,7 +61,7 @@ class TCN(pl.LightningModule):
         label_dict: dict,
         num_classes: int,
         num_joints: int = 17,
-        coord_dim: int = 2,
+        coord_dim: int = 4,
         tcn_channels: List[int] = [128, 256, 512],  # channels for each temporal level
         kernel_size: int = 3,
         dropout: float = 0.1,

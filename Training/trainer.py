@@ -19,7 +19,7 @@ PROJECT_NAME        = "SaberPredict"
 
 BATCH_SIZE          = 32
 MAX_EPOCHS          = 75
-TUNED_LR            = 1.659586907437561e-05
+TUNED_LR            = 2.8840315031266063e-05
 
 def main():
     parser = argparse.ArgumentParser()

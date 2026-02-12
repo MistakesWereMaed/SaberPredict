@@ -195,4 +195,8 @@ class Pipeline:
             frame_idx += 1
 
         cap.release()
+
+        self.left_buffer.flush()
+        self.right_buffer.flush()
+
         return pd.DataFrame(records)
