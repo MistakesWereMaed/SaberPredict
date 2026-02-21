@@ -31,11 +31,6 @@ MIN_POSE_AREA       = 1200
 ROI_PAD_Y           = 50
 
 def get_best_checkpoint(checkpoints_dir):
-    """
-    Returns the checkpoint file with the highest val_acc in the given directory.
-
-    Expects filenames like: 'TCN-epoch=25-val_acc=0.86.ckpt'
-    """
     best_file = None
     best_acc = -1.0
 
@@ -81,7 +76,7 @@ class Pipeline:
         t0 = time.perf_counter()
 
         fencer = buffer.fencer
-        label = "SKIPPED" if not run_classification else "OTHER_NO_ACTION"
+        label = "SKIPPED" if not run_classification else "NO_ACTION"
 
         entry = assigned.get(fencer)
         kpts = entry["keypoints"] if entry else None

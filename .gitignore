@@ -2,6 +2,7 @@
 *.jpg
 *.pt
 *.ckpt
+*.json
 
 __pycache__
 

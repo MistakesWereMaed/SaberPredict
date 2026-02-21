@@ -6,8 +6,7 @@ from pathlib import Path
 from sklearn.metrics import (
     accuracy_score,
     precision_recall_fscore_support,
-    confusion_matrix,
-    classification_report,
+    confusion_matrix
 )
 
 from Pipeline.driver import Pipeline

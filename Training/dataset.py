@@ -9,7 +9,6 @@ PATH_LABEL_MAP = "Dataset/Data/label_map.csv"
 WINDOW_SIZE = 4
 NUM_JOINTS = 17
 
-
 class SkeletonDataset(Dataset):
     def __init__(self, csv_path):
         self.df = pd.read_csv(csv_path)

@@ -6,7 +6,6 @@ from collections import deque
 NUM_JOINTS  = 17
 WINDOW_SIZE = 4
 
-
 class SkeletonWindowBuffer:
     def __init__(self, fencer, window_size=WINDOW_SIZE, num_joints=NUM_JOINTS):
         self.fencer = fencer
