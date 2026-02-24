@@ -11,3 +11,4 @@ Dataset/Data/Unprocessed
 Dataset/YoloROI/*
 Training/Checkpoints/*
 Training/Logs/*
+Dataset/Data/test.csv
