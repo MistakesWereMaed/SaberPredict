@@ -56,17 +56,6 @@ def restructure_df(df_keypoints, df_actions, test_files):
     return wide.sort_values(["file", "frame_idx"]).reset_index(drop=True)
 
 def print_summary(metrics):
-    print("\n=== Overall Accuracy ===")
-    for side in ["left", "right"]:
-        acc = metrics["accuracy"][side]
-        print(f"{side.capitalize():>6}: {acc:.4f}")
-    print(f"{'Mean':>6}: {metrics['accuracy']['mean']:.4f}")
-
-    print("=== Pose Availability ===")
-    for side in ["left", "right"]:
-        avail = metrics["pose_availability"][side]
-        print(f"{side.capitalize():>6}: {avail:.3f}")
-
     print("=== Timing (ms) ===")
     for stage, t in metrics["speed"].items():
         if isinstance(t, dict):
@@ -75,10 +64,11 @@ def print_summary(metrics):
             print(f"{stage:>25}: {t:.2f}")
 
     print("=== Per-class F1 ===")
-    for side in ["left", "right"]:
-        print(f"\n-- {side.upper()} --")
-        for cls, m in metrics["per_class"][side].items():
-            print(f"{cls:>25}: f1={m['f1']:.3f}, precision={m['precision']:.3f}, recall={m['recall']:.3f}, support={m['support']}")
+    for cls, m in metrics["per_class"].items():
+        print(f"{cls:>25}: f1={m['f1']:.3f}, precision={m['precision']:.3f}, recall={m['recall']:.3f}, support={m['support']}")
+
+    print("\n=== Overall Accuracy ===")
+    print(f"Combined: {metrics['accuracy']:.4f}")
 
 def save_metrics_json(metrics, out_path):
     out_path = Path(out_path)
@@ -117,87 +107,68 @@ def compute_speed_stats(df):
 
     return stats
 
-from sklearn.metrics import (
-    accuracy_score,
-    precision_recall_fscore_support,
-    confusion_matrix,
-)
+def evaluate_pipeline_results(results_df, label_order):
+    metrics = {}
 
-def evaluate_labels(y_true, y_pred, label_order):
-    mask = (y_true != "SKIPPED") & (y_pred != "SKIPPED")
-    y_true = y_true[mask]
-    y_pred = y_pred[mask]
+    # Build combined true/pred arrays
+    true = []
+    pred = []
 
-    acc = float(accuracy_score(y_true, y_pred))
+    # LEFT samples
+    left_mask = (results_df["left_label_gt"] != "SKIPPED") & (results_df["left_label_pred"] != "SKIPPED")
+    true.extend(results_df.loc[left_mask, "left_label_gt"].tolist())
+    pred.extend(results_df.loc[left_mask, "left_label_pred"].tolist())
 
+    # RIGHT samples
+    right_mask = (results_df["right_label_gt"] != "SKIPPED") & (results_df["right_label_pred"] != "SKIPPED")
+    true.extend(results_df.loc[right_mask, "right_label_gt"].tolist())
+    pred.extend(results_df.loc[right_mask, "right_label_pred"].tolist())
+
+    true = pd.Series(true)
+    pred = pd.Series(pred)
+
+    # -------------------------------------------------
+    # OVERALL ACCURACY (COMBINED)
+    # -------------------------------------------------
+    metrics["accuracy"] = float(accuracy_score(true, pred))
+
+    # -------------------------------------------------
+    # PER-CLASS METRICS (COMBINED)
+    # -------------------------------------------------
     p, r, f1, support = precision_recall_fscore_support(
-        y_true,
-        y_pred,
+        true,
+        pred,
         labels=label_order,
         zero_division=0,
     )
 
-    per_class = {
-        label: {
+    metrics["per_class"] = {
+        cls: {
             "precision": float(p[i]),
             "recall": float(r[i]),
             "f1": float(f1[i]),
             "support": int(support[i]),
         }
-        for i, label in enumerate(label_order)
+        for i, cls in enumerate(label_order)
     }
 
+    # -------------------------------------------------
+    # CONFUSION MATRIX (COMBINED)
+    # -------------------------------------------------
     cm = confusion_matrix(
-        y_true,
-        y_pred,
+        true,
+        pred,
         labels=label_order,
-    ).tolist()  # critical
-
-    return {
-        "accuracy": acc,
-        "per_class": per_class,
-        "confusion_matrix": cm,
-    }
-
-def evaluate_pipeline_results(results_df, label_order):
-    metrics = {}
-
-    # ---- Left fencer ----
-    left = evaluate_labels(
-        results_df["left_label_gt"].values,
-        results_df["left_label_pred"].values,
-        label_order,
-    )
-
-    # ---- Right fencer ----
-    right = evaluate_labels(
-        results_df["right_label_gt"].values,
-        results_df["right_label_pred"].values,
-        label_order,
-    )
-
-    metrics["accuracy"] = {
-        "left": left["accuracy"],
-        "right": right["accuracy"],
-        "mean": 0.5 * (left["accuracy"] + right["accuracy"]),
-    }
-
-    metrics["per_class"] = {
-        "left": left["per_class"],
-        "right": right["per_class"],
-    }
+    ).tolist()
 
     metrics["confusion_matrix"] = {
-        "left": left["confusion_matrix"],
-        "right": right["confusion_matrix"],
+        "matrix": cm,
         "labels": label_order,
     }
 
-    metrics["pose_availability"] = {
-        "left": float((results_df["left_keypoints"].str.len() > 0).mean()),
-        "right": float((results_df["right_keypoints"].str.len() > 0).mean()),
-    }
-
+    # -------------------------------------------------
+    # SPEED
+    # -------------------------------------------------
     metrics["speed"] = compute_speed_stats(results_df)
 
     return metrics

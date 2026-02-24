@@ -65,7 +65,7 @@ class TCN(pl.LightningModule):
         tcn_channels: List[int] = [128, 256, 512],  # channels for each temporal level
         kernel_size: int = 3,
         dropout: float = 0.1,
-        fc_hidden: int = 768,
+        fc_hidden: int = 256,
         lr: float = 5e-4,
         weight_decay: float = 1e-4,
         use_onecycle: bool = True,
@@ -146,10 +146,6 @@ class TCN(pl.LightningModule):
         self._draw_plots()
 
     def _step(self, batch, batch_idx, mode: str):
-        """
-        Shared logic for train/val/test steps.
-        mode: one of {"train", "val", "test"}.
-        """
         x = batch["keypoints"]        # (B, T, V, 2)
         y = batch["label"] 
 

@@ -17,7 +17,7 @@ PATH_CHECKPOINTS    = "Training/Checkpoints"
 
 PROJECT_NAME        = "SaberPredict"
 
-BATCH_SIZE          = 32
+BATCH_SIZE          = 64
 MAX_EPOCHS          = 75
 TUNED_LR            = 2.8840315031266063e-05
 
