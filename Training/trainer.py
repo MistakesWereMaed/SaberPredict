@@ -65,7 +65,9 @@ def main():
             num_classes=data.num_classes,
             label_dict=data.label_dict,
             max_epochs=MAX_EPOCHS,
-            lr=TUNED_LR
+            lr=TUNED_LR,
+            #class_weights=data.class_weights,
+            class_weights=None
         )
 
         checkpoint_callback = ModelCheckpoint(

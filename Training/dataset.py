@@ -2,6 +2,7 @@ import torch
 import pandas as pd
 import numpy as np
 
+from collections import Counter
 from torch.utils.data import Dataset
 
 PATH_LABEL_MAP = "Dataset/Data/label_map.csv"
@@ -28,6 +29,8 @@ class SkeletonDataset(Dataset):
             [f"y{i}" for i in range(NUM_JOINTS)]
         )
 
+        self.labels = []
+
         for wid, group in self.df.groupby("window_id"):
             group = group.sort_values("frame")
 
@@ -52,6 +55,18 @@ class SkeletonDataset(Dataset):
             label = self.label_to_id[label_str]
 
             self.samples.append((kpts_aug, label))
+            self.labels.append(label)
+
+        counts = Counter(self.labels)
+        total = sum(counts.values())
+
+        self.class_weights = {
+            cls: total / count
+            for cls, count in counts.items()
+        }
+
+        weights = np.array([self.class_weights[label] for label in self.labels])
+        self.sampler_weights = weights / weights.sum()
 
     def __len__(self):
         return len(self.samples)

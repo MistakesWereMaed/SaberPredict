@@ -58,8 +58,9 @@ class TCN(pl.LightningModule):
     """
     def __init__(
         self,
-        label_dict: dict,
-        num_classes: int,
+        label_dict,
+        class_weights = None,
+        num_classes: int = 5,
         num_joints: int = 17,
         coord_dim: int = 4,
         tcn_channels: List[int] = [128, 256, 512],  # channels for each temporal level
@@ -150,11 +151,21 @@ class TCN(pl.LightningModule):
         y = batch["label"] 
 
         logits, emb = self(x)
+        class_weights = self.hparams.class_weights
 
-        loss = F.cross_entropy(logits, y, label_smoothing=0.1)
+        if class_weights is not None:
+            class_weights_tensor = torch.tensor(
+                [class_weights[i] for i in range(5)],
+                dtype=torch.float32,
+                device=logits.device
+            )
+            loss = F.cross_entropy(logits, y, weight=class_weights_tensor)
+        else:
+            loss = F.cross_entropy(logits, y, label_smoothing=0.1)
+
         preds = torch.argmax(logits, dim=1)
 
-        # Metric dictionary for cleaner code
+        # Metric dictionary
         metric_map = {
             "train": self.train_acc,
             "val":   self.val_acc,
