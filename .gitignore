@@ -11,5 +11,5 @@ Dataset/YoloROI/*
 Training/Checkpoints/*
 Training/Logs/*
 Experiments/*/cls_train.csv
-Experiments/*/cls_test.csv
+Experiments/*/cls_data.csv
 Experiments/*/test.csv
