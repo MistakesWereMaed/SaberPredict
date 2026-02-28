@@ -76,7 +76,7 @@ class TCN(pl.LightningModule):
         self.save_hyperparameters()
 
         # TCN input channels = V * coord_dim (one channel per coordinate per joint)
-        in_ch = num_joints * coord_dim
+        in_ch = (num_joints * 2) * coord_dim
 
         layers = []
         num_levels = len(tcn_channels)
@@ -95,7 +95,7 @@ class TCN(pl.LightningModule):
             nn.LayerNorm(fc_hidden),
         )
 
-        self.classifier = nn.Linear(fc_hidden, num_classes)
+        self.classifier = nn.Linear(fc_hidden, num_classes * 2)
 
         # metrics
         self.train_acc = Accuracy(task="multiclass", num_classes=num_classes)
@@ -111,25 +111,30 @@ class TCN(pl.LightningModule):
 
     def forward(self, x: torch.Tensor):
         """
-        x: (B, T, V, C)
+        x: (B, T, 2, 17, 4)
         returns: logits (B, num_classes), emb (B, fc_hidden)
         """
-        B, T, V, C = x.shape
 
-        # Normalize per-sample per-frame (center by mean, scale by max dist)
-        x = normalize_input(x)  # (B,T,V,C)
+        B, T, F, V, C = x.shape  # F = 2 fencers
+
+        # ---- Flatten fencers ----
+        # (B, T, 2, 17, 4) → (B, T, 34, 4)
+        x = x.reshape(B, T, F * V, C)
+
+        # Normalize per-sample per-frame
+        x = normalize_input(x)  # (B, T, 34, 4)
 
         # reshape to (B, channels, T)
-        # channels = V * C (each joint coordinate is its own channel)
-        x_ch = x.permute(0, 2, 3, 1).reshape(B, V * C, T)  # (B, V*C, T)
+        x_ch = x.permute(0, 2, 3, 1).reshape(B, (F * V) * C, T)
 
         tcn_out = self.network(x_ch)  # (B, out_ch, T)
 
-        # global temporal pooling (average)
         pooled = tcn_out.mean(dim=2)  # (B, out_ch)
 
-        emb = self.embedding_proj(pooled)  # (B, fc_hidden)
-        logits = self.classifier(emb)  # (B, num_classes)
+        emb = self.embedding_proj(pooled)
+        logits = self.classifier(emb)
+        logits = logits.view(B, 2, -1)  # (B, 2, num_classes)
+
         return logits, emb
 
     # training / validation steps
@@ -161,9 +166,18 @@ class TCN(pl.LightningModule):
             )
             loss = F.cross_entropy(logits, y, weight=class_weights_tensor)
         else:
-            loss = F.cross_entropy(logits, y, label_smoothing=0.1)
+            loss_left  = F.cross_entropy(logits[:, 0], y[:, 0])
+            loss_right = F.cross_entropy(logits[:, 1], y[:, 1])
+            loss = loss_left + loss_right
 
-        preds = torch.argmax(logits, dim=1)
+        # logits: (B, 2, C)
+        # y:      (B, 2)
+
+        preds = torch.argmax(logits, dim=2)  # (B, 2)
+
+        # flatten
+        preds_flat = preds.reshape(-1)
+        y_flat = y.reshape(-1)
 
         # Metric dictionary
         metric_map = {
@@ -177,7 +191,7 @@ class TCN(pl.LightningModule):
         self.log(prefix + "loss", loss, prog_bar=True, on_step=False, on_epoch=True)
 
         if mode in metric_map:
-            acc = metric_map[mode](preds, y)
+            acc = metric_map[mode](preds_flat, y_flat)
             self.log(prefix + "acc", acc, prog_bar=True, on_step=False, on_epoch=True)
 
         # Confusion matrix only during test
