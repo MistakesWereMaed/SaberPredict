@@ -6,25 +6,25 @@ from Training.dataset import SkeletonDataset
 class SkeletonDataModule(pl.LightningDataModule):
     def __init__(
         self,
-        train_csv,
-        test_csv,
+        train_df,
+        test_df,
         batch_size=32,
         num_workers=4,
     ):
         super().__init__()
-        self.train_csv = train_csv
-        self.test_csv = test_csv
+        self.train_df = train_df
+        self.test_df = test_df
         self.batch_size = batch_size
         self.num_workers = num_workers
 
     def setup(self, stage=None):
         # Build train first to define label space
-        self.train_set = SkeletonDataset(self.train_csv)
+        self.train_set = SkeletonDataset(self.train_df)
         self.label_dict = self.train_set.id_to_label
         self.num_classes = len(self.label_dict)
 
         # Share label mapping across splits
-        self.test_set = SkeletonDataset(self.test_csv)
+        self.test_set = SkeletonDataset(self.test_df)
 
     def train_dataloader(self):
         return DataLoader(

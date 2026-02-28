@@ -6,12 +6,12 @@ from torch.utils.data import Dataset
 
 PATH_LABEL_MAP = "Dataset/Data/label_map.csv"
 
-WINDOW_SIZE = 4
 NUM_JOINTS = 17
+WINDOW_SIZE = 4
 
 class SkeletonDataset(Dataset):
-    def __init__(self, csv_path):
-        self.df = pd.read_csv(csv_path)
+    def __init__(self, df):
+        self.df = df
         label_map = pd.read_csv(PATH_LABEL_MAP)
 
         self.label_to_id = {

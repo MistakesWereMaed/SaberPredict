@@ -13,12 +13,14 @@ from Pipeline.driver import Pipeline
 
 PATH_CLIPS       = "Dataset/Videos/Clips"
 
-PATH_TEST        = "Dataset/Data/Processed/cls_test.csv"
+PATH_DATA        = "Dataset/Data/Processed/cls_data.csv"
 PATH_KEYPOINTS   = "Dataset/Data/Unprocessed/keypoints.csv"
 PATH_ACTIONS     = "Dataset/Data/Processed/actions_filtered.csv"
 
-PATH_TEST_OUT    = "Dataset/Data/test.csv"
-PATH_METRICS     = "Dataset/Data/metrics.json"
+PATH_TEST_OUT    = "Experiments/test.csv"
+PATH_METRICS     = "Experiments/metrics.json"
+
+TEST_BOUT       = "3/"
 
 # ----------------------------
 # Utilities
@@ -213,7 +215,8 @@ def main():
     pipeline = Pipeline()
     label_order = pipeline.label_map["label"].tolist()
 
-    df_test = pd.read_csv(PATH_TEST)
+    df_test = pd.read_csv(PATH_DATA)
+    df_test = df_test[df_test["file"].str.contains(TEST_BOUT)]
     df_keypoints = pd.read_csv(PATH_KEYPOINTS)
     df_actions = pd.read_csv(PATH_ACTIONS)
 

@@ -1,5 +1,3 @@
-import os
-import re
 import cv2
 import time
 import torch
@@ -17,7 +15,7 @@ PATH_LABEL_MAP      = "Dataset/Data/label_map.csv"
 
 PATH_ROI_MODEL      = "Training/Checkpoints/xlarge.pt"
 PATH_POSE_MODEL     = "Training/Checkpoints/yolo11x-pose.pt"
-PATH_TCN            = "Training/Checkpoints/"
+PATH_TCN            = "Experiments/best_fold_model.ckpt"
 
 IMG_SIZE_ROI        = 640
 IMG_SIZE_POSE       = 1280
@@ -30,45 +28,23 @@ MIN_POSE_AREA       = 1200
 
 ROI_PAD_Y           = 50
 
-def get_best_checkpoint(checkpoints_dir):
-    best_file = None
-    best_acc = -1.0
-
-    pattern = re.compile(r"val_acc=([0-9]+)")
-
-    for fname in os.listdir(checkpoints_dir):
-        if not fname.endswith(".ckpt"):
-            continue
-        match = pattern.search(fname)
-        if match:
-            acc = float(match.group(1))
-            if acc > best_acc:
-                best_acc = acc
-                best_file = fname
-
-    if best_file is None:
-        raise FileNotFoundError(f"No valid checkpoint found in {checkpoints_dir}")
-
-    return os.path.join(checkpoints_dir, best_file)
-
 # ---------------- PIPELINE ---------------- #
 
 class Pipeline:
-    def __init__(self):
+    def __init__(self, classifier_path=None):
         self.device         = "cuda" if torch.cuda.is_available() else "cpu"
 
         self.roi_detector   = ROIDetector(PATH_ROI_MODEL, imgsz=IMG_SIZE_ROI, conf=ROI_CONF_THRESHOLD)
         self.pose_estimator = PoseEstimator(PATH_POSE_MODEL, imgsz=IMG_SIZE_POSE, conf=POSE_CONF_THRESHOLD)
         self.pose_filter    = PoseFilter(max_outside_ratio=MAX_OUTSIDE_RATIO, min_area=MIN_POSE_AREA)
 
-        checkpoint          = get_best_checkpoint(PATH_TCN)
-        self.classifier     = TCN.load_from_checkpoint(checkpoint, map_location=self.device,).eval()
+        self.classifier     = TCN.load_from_checkpoint(PATH_TCN, map_location=self.device,).eval()
 
         self.left_buffer    = SkeletonWindowBuffer("LEFT")
         self.right_buffer   = SkeletonWindowBuffer("RIGHT")
 
-        self.label_map = pd.read_csv(PATH_LABEL_MAP)
-        self.id_to_label = {row["id"]: row["label"] for _, row in self.label_map.iterrows()}
+        self.label_map      = pd.read_csv(PATH_LABEL_MAP)
+        self.id_to_label    = {row["id"]: row["label"] for _, row in self.label_map.iterrows()}
 
         self.roi = None  # persistent ROI
 

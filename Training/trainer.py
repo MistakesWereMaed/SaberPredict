@@ -1,80 +1,134 @@
 import pytorch_lightning as pl
-import argparse
 import wandb
+import pandas as pd
+import os
+import shutil
+import numpy as np
+
+from sklearn.model_selection import GroupKFold
 
 from Training.data_module import SkeletonDataModule
 from Pipeline.classifier import TCN
 
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.tuner import Tuner
 
-PATH_TRAIN          = "Dataset/Data/Processed/cls_train.csv"
-PATH_TEST           = "Dataset/Data/Processed/cls_test.csv"
+PATH_DATA        = "Dataset/Data/Processed/cls_data.csv"
+PATH_LOGS        = "Training/Logs"
+PATH_CHECKPOINTS = "Training/Checkpoints"
+PATH_RESULTS     = "Experiments"
 
-PATH_LOGS           = "Training/Logs"
-PATH_CHECKPOINTS    = "Training/Checkpoints"
+PROJECT_NAME     = "SaberPredict"
 
-PROJECT_NAME        = "SaberPredict"
-
-BATCH_SIZE          = 64
-MAX_EPOCHS          = 75
-TUNED_LR            = 2.8840315031266063e-05
+BATCH_SIZE       = 64
+MAX_EPOCHS       = 75
+TUNED_LR         = 2.8840315031266063e-05
+N_SPLITS         = 6
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--tune", action="store_true", default=False)
-    args = parser.parse_args()
+    os.makedirs(PATH_RESULTS, exist_ok=True)
 
-    name = "TCN"
-    wandb_logger = WandbLogger(
-        project=PROJECT_NAME,
-        name=name,
-        save_dir=PATH_LOGS
-    )
+    df = pd.read_csv(PATH_DATA)
+    df["bout_id"] = df["file"].str.split("/").str[0]
+    gkf = GroupKFold(n_splits=N_SPLITS)
 
-    data = SkeletonDataModule(
-        train_csv=PATH_TRAIN,
-        test_csv=PATH_TEST,
-        batch_size=BATCH_SIZE,
-        num_workers=2,
-    )
-    data.setup()
+    fold_metrics = []
+    best_fold = None
+    best_split = None
+    best_acc = -1
+    best_ckpt_path = None
 
-    model = TCN(
-        num_classes=data.num_classes,
-        label_dict=data.label_dict,
-        max_epochs=MAX_EPOCHS,
-        lr=TUNED_LR
-    )
+    for fold, (train_idx, test_idx) in enumerate(
+        gkf.split(df, groups=df["bout_id"])
+    ):
 
-    checkpoint_callback = ModelCheckpoint(
-        dirpath=PATH_CHECKPOINTS,
-        filename="TCN-{epoch}-{val_acc:.2f}",
-        save_top_k=1,
-        monitor="val_loss",
-        mode="min"
-    )
+        print(f"\n===== Fold {fold+1}/{N_SPLITS} =====")
 
-    trainer = pl.Trainer(
-        max_epochs=model.hparams.max_epochs,
-        accelerator="gpu",
-        devices=1,
-        logger=wandb_logger,
-        log_every_n_steps=10,
-        callbacks=[checkpoint_callback]
-    )
+        train_df = df.iloc[train_idx]
+        test_df  = df.iloc[test_idx]
 
-    if args.tune:
-        tuner = Tuner(trainer)
+        wandb_logger = WandbLogger(
+            project=PROJECT_NAME,
+            name=f"TCN_fold_{fold}",
+            save_dir=PATH_LOGS
+        )
 
-        lr_finder = tuner.lr_find(model, datamodule=data, min_lr=1e-5, max_lr=1e-3)
-        model.hparams.lr = lr_finder.suggestion()
+        data = SkeletonDataModule(
+            train_df=train_df,
+            test_df=test_df,
+            batch_size=BATCH_SIZE,
+            num_workers=2,
+        )
+        data.setup()
 
-    trainer.fit(model, data)
-    trainer.test(model, data, ckpt_path="best")
+        model = TCN(
+            num_classes=data.num_classes,
+            label_dict=data.label_dict,
+            max_epochs=MAX_EPOCHS,
+            lr=TUNED_LR
+        )
 
-    wandb.finish()
+        checkpoint_callback = ModelCheckpoint(
+            dirpath=os.path.join(PATH_CHECKPOINTS, f"fold_{fold}"),
+            filename="best",
+            save_top_k=1,
+            monitor="val_loss",
+            mode="min"
+        )
+
+        trainer = pl.Trainer(
+            max_epochs=MAX_EPOCHS,
+            accelerator="gpu",
+            devices=1,
+            logger=wandb_logger,
+            log_every_n_steps=10,
+            callbacks=[checkpoint_callback]
+        )
+
+        trainer.fit(model, data)
+
+        test_results = trainer.test(model, data, ckpt_path="best")[0]
+
+        test_acc = test_results["test_acc"]
+        fold_metrics.append(test_acc)
+
+        print(f"Fold {fold} Test Accuracy: {test_acc:.4f}")
+
+        # Track best fold
+        if test_acc > best_acc:
+            best_acc = test_acc
+            best_fold = fold
+            best_split = test_df["bout_id"].unique()[0]
+            best_ckpt_path = checkpoint_callback.best_model_path
+
+        wandb.finish()
+
+    # ===== Aggregate Results =====
+    mean_acc = np.mean(fold_metrics)
+    std_acc  = np.std(fold_metrics)
+
+    print("\n===== Cross Validation Summary =====")
+    print(f"Mean Accuracy: {mean_acc:.4f}")
+    print(f"Std Accuracy : {std_acc:.4f}")
+    print(f"Best Fold    : {best_fold} ({best_acc:.4f})")
+    print(f"Best Split   : {best_split}")
+
+    # Save metrics
+    results_df = pd.DataFrame({
+        "fold": list(range(N_SPLITS)),
+        "accuracy": fold_metrics
+    })
+
+    results_df.loc["mean"] = ["-", mean_acc]
+    results_df.loc["std"]  = ["-", std_acc]
+
+    results_df.to_csv(os.path.join(PATH_RESULTS, "cv_metrics.csv"), index=False)
+
+    # ===== Save Best Fold Model =====
+    if best_ckpt_path is not None:
+        final_model_path = os.path.join(PATH_RESULTS, "best_fold_model.ckpt")
+        shutil.copy(best_ckpt_path, final_model_path)
+        print(f"\nBest fold model saved to: {final_model_path}")
 
 if __name__ == "__main__":
     main()

@@ -2,7 +2,6 @@
 *.jpg
 *.pt
 *.ckpt
-*.json
 
 __pycache__
 
@@ -11,4 +10,6 @@ Dataset/Data/Unprocessed
 Dataset/YoloROI/*
 Training/Checkpoints/*
 Training/Logs/*
-Dataset/Data/test.csv
+Experiments/*/cls_train.csv
+Experiments/*/cls_test.csv
+Experiments/*/test.csv
