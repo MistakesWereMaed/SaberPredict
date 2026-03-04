@@ -1,0 +1,3 @@
+yolo11s
+img_size = 960
+TCN: 128 hidden size, channels = [128, 128, 256]

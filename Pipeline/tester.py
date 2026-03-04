@@ -11,7 +11,7 @@ from sklearn.metrics import (
 
 from Pipeline.driver import Pipeline
 
-PATH_CLIPS       = "Dataset/Videos/Clips"
+PATH_CLIPS       = "Dataset/Data/Videos/Clips"
 
 PATH_DATA        = "Dataset/Data/Processed/cls_data.csv"
 PATH_KEYPOINTS   = "Dataset/Data/Unprocessed/keypoints.csv"
