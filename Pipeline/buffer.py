@@ -3,7 +3,7 @@ import numpy as np
 
 from collections import deque
 
-NUM_JOINTS  = 17
+NUM_JOINTS  = 33
 WINDOW_SIZE = 4
 
 class SkeletonWindowBuffer:
