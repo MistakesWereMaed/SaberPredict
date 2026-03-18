@@ -7,7 +7,7 @@ DATASET_ROOT="../Dataset/YoloROI"
 DATA_YAML="${DATASET_ROOT}/data.yaml"
 
 MODEL_SIZE="x"
-MODEL="yolo11${MODEL_SIZE}.pt"
+MODEL="yolo26${MODEL_SIZE}.pt"
 IMG_SIZE=640
 EPOCHS=30
 BATCH=16
@@ -15,7 +15,7 @@ DEVICE=0
 WORKERS=2
 
 PROJECT="Checkpoints"
-NAME="yolo11${MODEL_SIZE}_finetune"
+NAME="yolo26${MODEL_SIZE}_finetune"
 
 # --------------------------------------------- #
 
