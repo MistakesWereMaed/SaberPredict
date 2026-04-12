@@ -57,9 +57,10 @@ class Pipeline:
         entry = assigned.get(fencer)
         kpts = entry["keypoints"] if entry else None
         conf = entry["confidence"] if entry else None
+        topk = None
 
         if not run_classification:
-            return label, kpts, conf, 0.0
+            return label, kpts, conf, 0.0, topk
 
         buffer.add_frame(kpts)
 
@@ -215,11 +216,11 @@ class Pipeline:
         assigned, t_filter = self.pose_filter.filter_and_assign(poses, self.roi)
 
         # -------- Classification -------- #
-        left_label, left_kpts, left_conf, t_cls_l = self._maybe_classify(
+        left_label, left_kpts, left_conf, t_cls_l, topk_l = self._maybe_classify(
             self.left_buffer, assigned, run_classification
         )
 
-        right_label, right_kpts, right_conf, t_cls_r = self._maybe_classify(
+        right_label, right_kpts, right_conf, t_cls_r, topk_r = self._maybe_classify(
             self.right_buffer, assigned, run_classification
         )
 

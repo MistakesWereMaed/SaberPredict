@@ -1,158 +1,196 @@
+import os
+import cv2
 import torch
 import pandas as pd
 import numpy as np
 from collections import defaultdict
 from tqdm import tqdm
 
-from Pipeline.classifier import TCN
+from Pipeline.driver import Pipeline
+
 
 # ---------------- CONFIG ---------------- #
-CSV_PATH = "Dataset/Data/Processed/cls_data.csv"
-MODEL_PATH = "Training/Checkpoints/best_fold_model.ckpt"
-BOUT_ID = "3"  # test bout
+PATH_CLIPS = "Dataset/Data/Videos/Clips"
+PATH_KEYPOINTS = "Dataset/Data/Unprocessed/keypoints.csv"
+PATH_ACTIONS = "Dataset/Data/Processed/actions_filtered.csv"
+
+BOUT_ID = "3/"
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-# ---------------- LOAD MODEL ---------------- #
-model = TCN.load_from_checkpoint(MODEL_PATH, map_location=DEVICE).eval().to(DEVICE)
-
-
 # ---------------- LOAD DATA ---------------- #
-df = pd.read_csv(CSV_PATH)
 
-# Filter test bout
-df = df[df["file"].str.startswith(f"{BOUT_ID}/")].copy()
-
-
-# ---------------- PREPROCESS ---------------- #
-# Extract keypoint columns
-kpt_cols = [c for c in df.columns if c.startswith("x") or c.startswith("y")]
-
-# Ensure correct ordering (x0,y0,x1,y1,...)
-kpt_cols = sorted(kpt_cols, key=lambda x: (int(x[1:]), x[0]))
+df_keypoints = pd.read_csv(PATH_KEYPOINTS)
+df_actions = pd.read_csv(PATH_ACTIONS)
 
 
-# ---------------- GROUP WINDOWS ---------------- #
-windows = []
+# ---------------- BUILD FRAME-LEVEL GT ---------------- #
 
-group_cols = ["file", "fencer", "window_id"]
+def build_frame_gt(df_keypoints, df_actions, bout_id):
+    df = df_keypoints.merge(df_actions, on=["file", "fencer"], how="left")
 
-for (file, fencer, window_id), g in tqdm(df.groupby(group_cols)):
-    g = g.sort_values("frame")
+    df = df[
+        (df["frame"] >= df["start_frame"]) &
+        (df["frame"] <= df["end_frame"])
+    ]
 
-    # shape: (T, 34)
-    kpts = g[kpt_cols].values
+    df = df[df["file"].str.startswith(bout_id)]
 
-    # reshape to (T, 17, 2)
-    kpts = kpts.reshape(len(g), 17, 2)
+    # Pivot to LEFT / RIGHT
+    df = df[["file", "frame", "fencer", "action"]]
 
-    label = g["action"].iloc[0]
+    wide = df.pivot(
+        index=["file", "frame"],
+        columns="fencer",
+        values="action"
+    ).reset_index()
 
-    windows.append({
-        "file": file,
-        "fencer": fencer,
-        "window_id": window_id,
-        "keypoints": kpts,
-        "label": label,
+    wide = wide.rename(columns={
+        "frame": "frame_idx",
+        "LEFT": "left_label",
+        "RIGHT": "right_label"
     })
 
-
-# ---------------- LABEL MAP ---------------- #
-labels = sorted(df["action"].unique())
-label_to_id = {l: i for i, l in enumerate(labels)}
-id_to_label = {i: l for l, i in label_to_id.items()}
+    return wide.sort_values(["file", "frame_idx"]).reset_index(drop=True)
 
 
-# ---------------- INFERENCE ---------------- #
-clip_stats = defaultdict(lambda: {
-    "correct": 0,
-    "total": 0,
-    "latencies": [],
-    "preds": [],
-    "targets": [],
-})
-
-for w in tqdm(windows):
-    x = torch.tensor(w["keypoints"], dtype=torch.float32).unsqueeze(0).to(DEVICE)
-    y = label_to_id[w["label"]]
-
-    # timing
-    start = torch.cuda.Event(enable_timing=True) if DEVICE == "cuda" else None
-    end = torch.cuda.Event(enable_timing=True) if DEVICE == "cuda" else None
-
-    if DEVICE == "cuda":
-        start.record()
-
-    with torch.no_grad():
-        logits, _ = model(x)
-
-    if DEVICE == "cuda":
-        end.record()
-        torch.cuda.synchronize()
-        latency = start.elapsed_time(end)  # ms
-    else:
-        latency = 0.0
-
-    probs = torch.softmax(logits, dim=-1)
-    pred = torch.argmax(probs, dim=-1).item()
-
-    file = w["file"]
-
-    clip_stats[file]["total"] += 1
-    clip_stats[file]["correct"] += int(pred == y)
-    clip_stats[file]["latencies"].append(latency)
-    clip_stats[file]["preds"].append(pred)
-    clip_stats[file]["targets"].append(y)
+df_gt = build_frame_gt(df_keypoints, df_actions, BOUT_ID)
 
 
-# ---------------- METRICS ---------------- #
-records = []
+# ---------------- EVALUATION ---------------- #
 
-for file, stats in clip_stats.items():
-    total = stats["total"]
-    correct = stats["correct"]
+def evaluate_pipeline():
+    pipeline = Pipeline()
 
-    acc = correct / total if total > 0 else 0.0
-    avg_latency = np.mean(stats["latencies"]) if stats["latencies"] else 0.0
-
-    # simple class diversity (optional usefulness metric)
-    unique_preds = len(set(stats["preds"]))
-
-    records.append({
-        "file": file,
-        "accuracy": acc,
-        "num_windows": total,
-        "avg_latency_ms": avg_latency,
-        "unique_pred_classes": unique_preds,
+    clip_stats = defaultdict(lambda: {
+        "correct": 0,
+        "total": 0,
+        "latencies": [],
+        "preds": [],
+        "targets": [],
     })
 
+    all_true = []
+    all_pred = []
 
-results_df = pd.DataFrame(records)
+    for file_name in tqdm(df_gt["file"].unique()):
+        video_path = os.path.join(PATH_CLIPS, file_name)
+
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            print(f"Skipping {file_name}")
+            continue
+
+        gt_clip = df_gt[df_gt["file"] == file_name]
+
+        frame_idx = 0
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            if frame_idx >= len(gt_clip):
+                break
+
+            gt_row = gt_clip.iloc[frame_idx]
+
+            result = pipeline.step(frame)
+
+            # LEFT
+            gt_left = gt_row["left_label"]
+            pred_left = result["left"]["label"]
+
+            if gt_left != "SKIPPED" and pred_left != "SKIPPED":
+                correct = int(gt_left == pred_left)
+
+                clip_stats[file_name]["correct"] += correct
+                clip_stats[file_name]["total"] += 1
+                clip_stats[file_name]["preds"].append(pred_left)
+                clip_stats[file_name]["targets"].append(gt_left)
+
+                all_true.append(gt_left)
+                all_pred.append(pred_left)
+
+            # RIGHT
+            gt_right = gt_row["right_label"]
+            pred_right = result["right"]["label"]
+
+            if gt_right != "SKIPPED" and pred_right != "SKIPPED":
+                correct = int(gt_right == pred_right)
+
+                clip_stats[file_name]["correct"] += correct
+                clip_stats[file_name]["total"] += 1
+                clip_stats[file_name]["preds"].append(pred_right)
+                clip_stats[file_name]["targets"].append(gt_right)
+
+                all_true.append(gt_right)
+                all_pred.append(pred_right)
+
+            # timing
+            clip_stats[file_name]["latencies"].append(result["timing"]["total"])
+
+            frame_idx += 1
+
+        cap.release()
+
+    # ---------------- GLOBAL METRICS ---------------- #
+
+    global_acc = np.mean(np.array(all_true) == np.array(all_pred))
+    print(f"\nGlobal Accuracy: {global_acc:.4f}")
+
+    # ---------------- PER-CLIP METRICS ---------------- #
+
+    records = []
+
+    for file, stats in clip_stats.items():
+        total = stats["total"]
+        correct = stats["correct"]
+
+        acc = correct / total if total > 0 else 0.0
+        avg_latency = np.mean(stats["latencies"]) if stats["latencies"] else 0.0
+
+        # instability metric (prediction flips)
+        preds = stats["preds"]
+        flips = sum(p1 != p2 for p1, p2 in zip(preds[:-1], preds[1:]))
+
+        records.append({
+            "file": file,
+            "accuracy": acc,
+            "num_frames": total,
+            "avg_latency_ms": avg_latency,
+            "prediction_flips": flips,
+        })
+
+    results_df = pd.DataFrame(records)
+
+    # ---------------- SORT ---------------- #
+
+    best = results_df.sort_values(
+        by=["accuracy", "num_frames"],
+        ascending=[False, False]
+    )
+
+    worst = results_df.sort_values(
+        by=["accuracy", "num_frames"],
+        ascending=[True, False]
+    )
+
+    # ---------------- SAVE ---------------- #
+
+    results_df.to_csv("Demo/clip_metrics_pipeline.csv", index=False)
+    best.head(10).to_csv("Demo/best_clips.csv", index=False)
+    worst.head(10).to_csv("Demo/worst_clips.csv", index=False)
+
+    print("\nTop 5 Best Clips:")
+    print(best.head())
+
+    print("\nTop 5 Worst Clips:")
+    print(worst.head())
 
 
-# ---------------- SORTING ---------------- #
-# Best clips (high accuracy, reasonable size)
-best = results_df.sort_values(
-    by=["accuracy", "num_windows"],
-    ascending=[False, False]
-)
+# ---------------- RUN ---------------- #
 
-# Worst clips (good for failure demo)
-worst = results_df.sort_values(
-    by=["accuracy", "num_windows"],
-    ascending=[True, False]
-)
-
-
-# ---------------- SAVE ---------------- #
-results_df.to_csv("clip_metrics.csv", index=False)
-best.head(10).to_csv("best_clips.csv", index=False)
-worst.head(10).to_csv("worst_clips.csv", index=False)
-
-
-print("\nTop 5 Best Clips:")
-print(best.head())
-
-print("\nTop 5 Worst Clips:")
-print(worst.head())
+if __name__ == "__main__":
+    evaluate_pipeline()

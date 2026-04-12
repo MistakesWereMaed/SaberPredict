@@ -2,6 +2,7 @@
 *.jpg
 *.pt
 *.ckpt
+*.onnx
 
 __pycache__
 
