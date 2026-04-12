@@ -1,3 +1,4 @@
 Expected frames:  16828
 Actual frames:    7890
 Coverage:         46.89%
+Image Size:       384x288

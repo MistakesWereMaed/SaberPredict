@@ -131,6 +131,19 @@ class TCN(pl.LightningModule):
         emb = self.embedding_proj(pooled)  # (B, fc_hidden)
         logits = self.classifier(emb)  # (B, num_classes)
         return logits, emb
+    
+    def predict_topk(self, x, k=3):
+        """
+        x: (B, T, V, C)
+        returns: topk indices and probabilities
+        """
+        logits, _ = self(x)  # (B, num_classes)
+
+        probs = torch.softmax(logits, dim=-1)  # (B, C)
+
+        topk_probs, topk_ids = torch.topk(probs, k=k, dim=-1)
+
+        return topk_ids, topk_probs
 
     # training / validation steps
 

@@ -15,7 +15,7 @@ PATH_LABEL_MAP      = "Dataset/Data/label_map.csv"
 
 PATH_ROI_MODEL      = "Training/Checkpoints/xlarge.pt"
 PATH_POSE_MODEL     = "Training/Checkpoints/yolo11x-pose.pt"
-PATH_TCN            = "Experiments/best_fold_model.ckpt"
+PATH_TCN            = "Training/Checkpoints/best_fold_model.ckpt"
 
 IMG_SIZE_ROI        = 640
 IMG_SIZE_POSE       = 1280
@@ -70,11 +70,21 @@ class Pipeline:
                 if logits.dim() == 3:
                     logits = logits[0]          # [T, C]
 
-                pred_id = torch.argmax(logits[-1], dim=-1).item()
-                label = self.id_to_label[pred_id]
+                probs = torch.softmax(logits[-1], dim=-1)
+                topk_probs, topk_ids = torch.topk(probs, k=3)
+
+                topk = [
+                    {
+                        "label": self.id_to_label[idx.item()],
+                        "confidence": prob.item()
+                    }
+                    for idx, prob in zip(topk_ids, topk_probs)
+                ]
+
+                label = topk[0]["label"]
 
         t_ms = (time.perf_counter() - t0) * 1000
-        return label, kpts, conf, t_ms
+        return label, kpts, conf, t_ms, topk
 
     def run(self, video_path, run_classification=True):
         cap = cv2.VideoCapture(video_path)
@@ -125,13 +135,13 @@ class Pipeline:
             )
 
             # -------- Classification -------- #
-            left_label, left_kpts, left_conf, t_cls_l = self._maybe_classify(
+            left_label, left_kpts, left_conf, t_cls_l, topk_l = self._maybe_classify(
                 self.left_buffer,
                 assigned,
                 run_classification=run_classification,
             )
 
-            right_label, right_kpts, right_conf, t_cls_r = self._maybe_classify(
+            right_label, right_kpts, right_conf, t_cls_r, topk_r = self._maybe_classify(
                 self.right_buffer,
                 assigned,
                 run_classification=run_classification,
@@ -155,12 +165,14 @@ class Pipeline:
                 "left_keypoints": (
                     left_kpts.tolist() if isinstance(left_kpts, np.ndarray) else []
                 ),
+                "topk_left": topk_l,
 
                 "right_label": right_label,
                 "right_confidence": right_conf,
                 "right_keypoints": (
                     right_kpts.tolist() if isinstance(right_kpts, np.ndarray) else []
                 ),
+                "topk_right": topk_r,
             })
 
             frame_idx += 1
@@ -171,3 +183,65 @@ class Pipeline:
         self.right_buffer.flush()
 
         return pd.DataFrame(records)
+
+    def step(self, frame, run_classification=True):
+        t_frame = time.perf_counter()
+
+        # -------- ROI -------- #
+        t_roi = 0.0
+        if self.roi is None:
+            self.roi, t_roi = self.roi_detector.detect(frame)
+
+        # -------- Pose -------- #
+        h, w = frame.shape[:2]
+        x1, y1, x2, y2 = self.roi
+
+        py1 = max(0, y1 - ROI_PAD_Y)
+        py2 = min(h, y2 + ROI_PAD_Y)
+
+        roi_crop = frame[py1:py2, x1:x2]
+        poses, t_pose = self.pose_estimator.infer(roi_crop)
+
+        for p in poses:
+            p["keypoints"][:, 0] += x1
+            p["keypoints"][:, 1] += py1
+            if "bbox" in p:
+                p["bbox"][0] += x1
+                p["bbox"][1] += py1
+                p["bbox"][2] += x1
+                p["bbox"][3] += py1
+
+        # -------- Filter -------- #
+        assigned, t_filter = self.pose_filter.filter_and_assign(poses, self.roi)
+
+        # -------- Classification -------- #
+        left_label, left_kpts, left_conf, t_cls_l = self._maybe_classify(
+            self.left_buffer, assigned, run_classification
+        )
+
+        right_label, right_kpts, right_conf, t_cls_r = self._maybe_classify(
+            self.right_buffer, assigned, run_classification
+        )
+
+        t_total = (time.perf_counter() - t_frame) * 1000
+
+        return {
+            "roi": self.roi,
+            "left": {
+                "label": left_label,
+                "kpts": left_kpts,
+                "conf": left_conf,
+            },
+            "right": {
+                "label": right_label,
+                "kpts": right_kpts,
+                "conf": right_conf,
+            },
+            "timing": {
+                "total": t_total,
+                "roi": t_roi,
+                "pose": t_pose,
+                "filter": t_filter,
+                "classify": t_cls_l + t_cls_r,
+            },
+        }
