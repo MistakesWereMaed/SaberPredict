@@ -9,8 +9,12 @@ __pycache__
 Dataset/Data/Processed
 Dataset/Data/Unprocessed
 Dataset/YoloROI/*
+
 Training/Checkpoints/*
 Training/Logs/*
+
 Experiments/*/cls_train.csv
 Experiments/*/cls_data.csv
 Experiments/*/test.csv
+
+Demo/Cache/

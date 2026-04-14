@@ -179,9 +179,9 @@ def evaluate_pipeline():
 
     # ---------------- SAVE ---------------- #
 
-    results_df.to_csv("Demo/clip_metrics_pipeline.csv", index=False)
-    best.head(10).to_csv("Demo/best_clips.csv", index=False)
-    worst.head(10).to_csv("Demo/worst_clips.csv", index=False)
+    results_df.to_csv("Demo/clips/clip_metrics_pipeline.csv", index=False)
+    best.head(10).to_csv("Demo/clips/best_clips.csv", index=False)
+    worst.head(10).to_csv("Demo/clips/worst_clips.csv", index=False)
 
     print("\nTop 5 Best Clips:")
     print(best.head())

@@ -1,8 +1,9 @@
 import os
 import pandas as pd
-import numpy as np
+import tqdm
 
 from Pipeline.driver import Pipeline
+
 
 PATH_CLIPS            = "Dataset/Data/Videos/Clips/"
 PATH_ACTIONS_FILTERED = "Dataset/Data/Processed/actions_filtered.csv"
@@ -10,60 +11,69 @@ PATH_ACTIONS_FILTERED = "Dataset/Data/Processed/actions_filtered.csv"
 PATH_KEYPOINTS        = "Dataset/Data/Unprocessed/keypoints.csv"
 PATH_METRICS          = "Dataset/Data/Unprocessed/metrics.csv"
 
+
 # ------------------------------------------------------------
-# Video processing
+# FLATTEN PIPELINE OUTPUT
+# ------------------------------------------------------------
+
+def flatten_frames(df):
+    rows = []
+
+    for _, r in df.iterrows():
+        res = r["result"] if "result" in df.columns else r
+
+        rows.append({
+            "frame": r["frame_idx"],
+
+            "roi": res["roi"],
+
+            "left_keypoints": res["left"]["kpts"],
+            "left_confidence": res["left"]["conf"],
+
+            "right_keypoints": res["right"]["kpts"],
+            "right_confidence": res["right"]["conf"],
+        })
+
+    return pd.DataFrame(rows)
+
+
+# ------------------------------------------------------------
+# VIDEO PROCESSING
 # ------------------------------------------------------------
 
 def process_video(video_path, pipeline, action_df):
-    """
-    Run pose estimation on every frame of a video and calculate coverage metrics per action.
-    """
+
     pipeline.roi = None
+
     df = pipeline.run(video_path, run_classification=False)
+    frame_df = flatten_frames(df)
 
-    frame_rows = []
-
-    for _, row in df.iterrows():
-        frame_idx = int(row["frame_idx"])
-
-        for fencer in ["LEFT", "RIGHT"]:
-            kp_col   = f"{fencer.lower()}_keypoints"
-            conf_col = f"{fencer.lower()}_confidence"
-
-            kpts = row.get(kp_col, [])
-            conf = row.get(conf_col, 0.0)
-
-            frame_rows.append({
-                "frame": frame_idx,
-                "fencer": fencer,
-                "roi": row.get("roi"),
-                "keypoints": kpts if isinstance(kpts, list) else [],
-                "confidence": float(conf) if conf is not None else 0.0,
-            })
-
-    frame_df = pd.DataFrame(frame_rows)
-
-    # ---------------- Metrics ----------------
     metrics = []
 
-    # Select actions for this video
-    video_actions = action_df[action_df["file"] == os.path.relpath(video_path, PATH_CLIPS)]
+    rel_path = os.path.relpath(video_path, PATH_CLIPS)
+    video_actions = action_df[action_df["file"] == rel_path]
 
     for _, action_row in video_actions.iterrows():
+
         fencer = action_row["fencer"]
-        start = action_row["start_frame"]
-        end   = action_row["end_frame"]
+        start  = action_row["start_frame"]
+        end    = action_row["end_frame"]
         action_id = action_row["action_id"]
 
         expected = end - start + 1
 
         subset = frame_df[
-            (frame_df.fencer == fencer)
-            & (frame_df.frame >= start)
-            & (frame_df.frame <= end)
+            (frame_df.frame >= start) &
+            (frame_df.frame <= end)
         ]
 
-        actual = subset["confidence"].gt(0).sum()
+        if fencer.lower() == "left":
+            conf_series = subset["left_confidence"]
+        else:
+            conf_series = subset["right_confidence"]
+
+        # improved definition of "pose present"
+        actual = (conf_series > 0).sum()
 
         metrics.append({
             "fencer": fencer,
@@ -72,57 +82,65 @@ def process_video(video_path, pipeline, action_df):
             "end_frame": end,
             "expected": expected,
             "actual": actual,
-            "coverage": actual / expected * 100.0,
+            "coverage": (actual / expected * 100.0) if expected > 0 else 0.0,
         })
 
     metrics_df = pd.DataFrame(metrics)
 
     return frame_df, metrics_df
 
+
 # ------------------------------------------------------------
-# Dataset-level driver
+# DATASET DRIVER
 # ------------------------------------------------------------
 
 def process_all(pipeline):
+
     all_frames = []
     all_metrics = []
 
     action_df = pd.read_csv(PATH_ACTIONS_FILTERED)
 
     for root, _, files in os.walk(PATH_CLIPS):
-        for file in files:
+        for file in tqdm.tqdm(files, desc="Processing videos"):
             if not file.lower().endswith((".mp4", ".avi", ".mov")):
                 continue
 
             full_path = os.path.join(root, file)
             rel_path  = os.path.relpath(full_path, PATH_CLIPS)
 
-            print(f"Processing: {rel_path}")
-
             frame_df, metrics_df = process_video(full_path, pipeline, action_df)
 
-            frame_df["file"]   = rel_path
+            frame_df["file"] = rel_path
             metrics_df["file"] = rel_path
 
             all_frames.append(frame_df)
             all_metrics.append(metrics_df)
 
+            break
+
     df_keypoints = pd.concat(all_frames, ignore_index=True)
     df_metrics   = pd.concat(all_metrics, ignore_index=True)
 
-    # Final formatting
-    df_keypoints.sort_values(["file", "fencer", "frame"], inplace=True)
+    df_keypoints.sort_values(["file", "frame"], inplace=True)
     df_keypoints.reset_index(drop=True, inplace=True)
-    df_keypoints = df_keypoints[["file", "fencer", "frame", "roi", "confidence", "keypoints"]]
+
+    df_keypoints = df_keypoints[
+        ["file", "frame", "roi",
+         "left_keypoints", "left_confidence",
+         "right_keypoints", "right_confidence"]
+    ]
 
     return df_keypoints, df_metrics
 
+
 # ------------------------------------------------------------
-# Main
+# MAIN
 # ------------------------------------------------------------
 
 def main():
     pipeline = Pipeline()
+
     keypoints_df, metrics_df = process_all(pipeline)
 
     keypoints_df.to_csv(PATH_KEYPOINTS, index=False)
@@ -130,6 +148,7 @@ def main():
 
     print(f"Saved keypoints to {PATH_KEYPOINTS}")
     print(f"Saved metrics to {PATH_METRICS}")
+
 
 if __name__ == "__main__":
     main()
